@@ -41,23 +41,42 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <WiFiClient.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPUpdateServer.h>
-#include <ESP8266mDNS.h>
+#include <WebServer.h>
+#include <HTTPUpdateServer.h>
+#include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <FS.h>
 #include <Ticker.h>
 
+#include <SD_MMC.h>
+#include "RTClib.h"
+#include <ESP32Time.h>
+#include <time.h>
+#include "driver/uart.h"
+
 #define DBG_OUTPUT_PORT Serial
+#define INVERTER_PORT UART_NUM_2
+#define INVERTER_RX 16
+#define INVERTER_TX 17
+#define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
+#define UART_MESSBUF_SIZE 100
+#define LED_BUILTIN 13 //clashes with SDIO, need to change to suit hardware and uncomment lines
+
+#define RESERVED_SD_SPACE 31000000000 //2000000000
+#define SDIO_BUFFER_SIZE 16384
+#define FLUSH_WRITES 60 //flush file every 60 blocks
+
+//HardwareSerial Inverter(INVERTER_PORT);
 
 const char* host = "inverter";
 bool fastUart = false;
 bool fastUartAvailable = true;
+char uartMessBuff[UART_MESSBUF_SIZE];
 
-ESP8266WebServer server(80);
-ESP8266HTTPUpdateServer updater;
+WebServer server(80);
+HTTPUpdateServer updater;
 //holds the current upload
 File fsUploadFile;
 Ticker sta_tick;
@@ -74,8 +93,105 @@ const uint8_t swd_clock_pin = 4; //GPIO4 (D2)
 const uint8_t swd_data_pin = 5; //GPIO5 (D1)
 ARMDebug swd(swd_clock_pin, swd_data_pin, ARMDebug::LOG_NONE);
 
+RTC_PCF8523 ext_rtc;
+ESP32Time int_rtc;
+uint32_t nextFileIndex = 0;
+bool haveRTC = false;
+bool haveSDCard = false;
+bool fastLoggingEnabled = true;
+bool fastLoggingActive = false;
+uint8_t SDIObuffer[SDIO_BUFFER_SIZE];
+uint16_t indexSDIObuffer = 0;
+uint16_t blockCountSD = 0;
+File dataFile;
+
+bool createNextSDFile()
+{
+  char filename[50];
+  if(haveRTC)
+    nextFileIndex = 0; //have a date so restart index from 0 (still needed in case serial stream fails to start)
+
+  do
+  {
+    if(haveRTC)
+      snprintf(filename, 50, "/%d-%02d-%02d-%02d-%02d-%02d_%d.bin", int_rtc.getYear(), int_rtc.getMonth(), int_rtc.getDay(), int_rtc.getHour(), int_rtc.getMinute(), int_rtc.getSecond(), nextFileIndex++);
+    else
+      snprintf(filename, 50, "/%010d.bin", nextFileIndex++);
+  }
+  while(SD_MMC.exists(filename));
+      
+  dataFile = SD_MMC.open(filename, FILE_WRITE);
+  if (dataFile) 
+  {
+    dataFile.flush(); //make sure FAT updated for debugging purposes
+    DBG_OUTPUT_PORT.println("Created file: " + String(filename)); 
+    return true;
+  }
+  else
+    return false;
+}
+
+uint32_t deleteOldest(uint64_t spaceRequired)
+{
+  time_t oldestTime = 0;
+  File root, file;
+  String oldestFileName;
+  uint64_t spaceRem;
+  time_t t;
+  uint32_t nextIndex = 0;
+  
+  spaceRem = SD_MMC.totalBytes() - SD_MMC.usedBytes();
+
+  DBG_OUTPUT_PORT.println("Space Required = " + formatBytes(spaceRequired));
+  DBG_OUTPUT_PORT.println("Space Remaining = " + formatBytes(spaceRem));
+  
+  while(spaceRem < spaceRequired)
+  {
+    root = SD_MMC.open("/");
+    
+    oldestTime = 0;
+    while(file = root.openNextFile())
+    {
+      if(haveRTC)
+        t = file.getLastWrite();
+      else
+      {
+        String fname = file.name();
+        fname.remove(0,1); //lose starting /
+        t = fname.toInt()+1; //make sure 0 special case isnt used
+        if(t > nextIndex)
+          nextIndex = t;
+      }
+      if(!file.isDirectory() && ((oldestTime==0) || (t<oldestTime)))
+      {
+        oldestTime = t;
+        oldestFileName = "/";
+        oldestFileName += file.name();
+      }
+      file.close();
+    }  
+    root.close();
+
+    
+    if(oldestFileName.length() > 0)
+    {
+      
+      if(SD_MMC.remove(oldestFileName))
+        DBG_OUTPUT_PORT.println("Deleted file: " + oldestFileName);
+      else
+        DBG_OUTPUT_PORT.println("Couldn't delete: " + oldestFileName);
+    }
+    else
+    {
+      DBG_OUTPUT_PORT.println("No files found, can't free space");
+      break;//no files so can do no more
+    }
+  }
+  return(nextIndex);
+}
+
 //format bytes
-String formatBytes(size_t bytes){
+String formatBytes(uint64_t bytes){
   if (bytes < 1024){
     return String(bytes)+"B";
   } else if(bytes < (1024 * 1024)){
@@ -176,35 +292,83 @@ void handleFileList() {
   if(server.hasArg("dir")) 
     String path = server.arg("dir");
   //DBG_OUTPUT_PORT.println("handleFileList: " + path);
-  Dir dir = SPIFFS.openDir(path);
-  path = String();
-
+  File root = SPIFFS.open(path);
   String output = "[";
-  while(dir.next()){
-    File entry = dir.openFile("r");
+
+  if(!root){
+    //DBG_OUTPUT_PORT.print("- failed to open directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  while(file){
     if (output != "[") output += ',';
     bool isDir = false;
     output += "{\"type\":\"";
-    output += (isDir)?"dir":"file";
+    output += file.isDirectory()?"dir":"file";
     output += "\",\"name\":\"";
-    output += String(entry.name()).substring(1);
+    output += String(file.name()).substring(1);
     output += "\"}";
-    entry.close();
+    file = root.openNextFile();
   }
   
   output += "]";
   server.send(200, "text/json", output);
 }
 
+// static void sendCommand(String cmd)
+// {
+//   DBG_OUTPUT_PORT.println("Sending '" + cmd + "' to inverter");
+//   Inverter.print("\n");
+//   delay(1);
+//   while(Inverter.available())
+//     Inverter.read(); //flush all previous output
+//   Inverter.print(cmd);
+//   Inverter.print("\n");
+//   Inverter.readStringUntil('\n'); //consume echo  
+// }
+
+void uart_readUntill(char val)
+{
+  int retVal;
+  do
+  {
+    retVal = uart_read_bytes(UART_NUM_2, uartMessBuff, 1, UART_TIMEOUT);
+  }
+  while((retVal>0) && (uartMessBuff[0] != val));
+}
+
+bool uart_readStartsWith(const char *val)
+{
+  bool retVal = false;
+  int rxBytes = uart_read_bytes(UART_NUM_2, uartMessBuff, strnlen(val,UART_MESSBUF_SIZE), UART_TIMEOUT);
+  if(rxBytes >= strnlen(val,UART_MESSBUF_SIZE))
+  {
+    if(strncmp(val, uartMessBuff, strnlen(val,UART_MESSBUF_SIZE))==0)
+      retVal = true;
+    uartMessBuff[rxBytes] = 0;
+    DBG_OUTPUT_PORT.println(uartMessBuff);
+  }
+  return retVal;
+}
+
+
+
 static void sendCommand(String cmd)
 {
-  Serial.print("\n");
+  DBG_OUTPUT_PORT.println("Sending '" + cmd + "' to inverter");
+  //Inverter.print("\n");
+  uart_write_bytes(INVERTER_PORT, "\n", 1);
   delay(1);
-  while(Serial.available())
-    Serial.read(); //flush all previous output
-  Serial.print(cmd);
-  Serial.print("\n");
-  Serial.readStringUntil('\n'); //consume echo  
+  //while(Inverter.available())
+  //  Inverter.read(); //flush all previous output
+  uart_flush(INVERTER_PORT);
+  //Inverter.print(cmd);
+  uart_write_bytes(INVERTER_PORT, cmd.c_str(), cmd.length());
+  //Inverter.print("\n");
+  uart_write_bytes(INVERTER_PORT, "\n", 1);
+  //Inverter.readStringUntil('\n'); //consume echo  
+  uart_readUntill('\n');
 }
 
 static void handleCommand() {
@@ -223,9 +387,11 @@ static void handleCommand() {
   if (!fastUart && fastUartAvailable)
   {
     sendCommand("fastuart");
-    if (Serial.readString().startsWith("OK"))
+    if (uart_readStartsWith("OK"))
     {
-      Serial.begin(921600);
+      //Inverter.begin(921600, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
+      //Inverter.updateBaudRate(921600);
+      uart_set_baudrate(INVERTER_PORT, 921600);
       fastUart = true;
     }
     else
@@ -237,16 +403,20 @@ static void handleCommand() {
   sendCommand(cmd);
   do {
     memset(buffer,0,sizeof(buffer));
-    len = Serial.readBytes(buffer, sizeof(buffer) - 1);
-    output += buffer;
+    //len = Inverter.readBytes(buffer, sizeof(buffer) - 1);
+    len = uart_read_bytes(UART_NUM_2, buffer, sizeof(buffer), UART_TIMEOUT);
+    if(len > 0) output.concat(buffer, len);// += buffer;
 
     if (repeat)
     {
       repeat--;
-      Serial.print("!");
-      Serial.readBytes(buffer, 1); //consume "!"
+      //Inverter.print("!");
+      uart_write_bytes(INVERTER_PORT, "!", 1);
+      //Inverter.readBytes(buffer, 1); //consume "!"
+      uart_read_bytes(UART_NUM_2, buffer, 1, UART_TIMEOUT);
     }
   } while (len > 0);
+  DBG_OUTPUT_PORT.println(output);
   server.sendHeader("Access-Control-Allow-Origin","*");
   server.send(200, "text/json", output);
 }
@@ -290,27 +460,41 @@ static void handleUpdate()
 
   if (step == -1)
   {
-    int c;
+    //int c;
+    char c;
     sendCommand("reset");
 
     if (fastUart)
     {
-      Serial.begin(115200);
+      //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
+      //Inverter.updateBaudRate(115200);
+      uart_set_baudrate(INVERTER_PORT, 115200);
       fastUart = false;
       fastUartAvailable = true; //retry after reboot
     }
     do {
-      c = Serial.read();
+      //c = Inverter.read();
+      uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
     } while (c != 'S' && c != '2');
 
     if (c == '2') //version 2 bootloader
     {
-      Serial.write(0xAA); //Send magic
-      while (Serial.read() != 'S');
+      //Inverter.write(0xAA); //Send magic
+      c = 0xAA;
+      uart_write_bytes(INVERTER_PORT, &c, 1);
+      //while (Inverter.read() != 'P');
+      do {
+        uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
+      } while (c != 'S');
     }
     
-    Serial.write(pages);
-    while (Serial.read() != 'P');
+    //Inverter.write(pages);
+    snprintf(uartMessBuff, UART_MESSBUF_SIZE, "%d", pages);
+    uart_write_bytes(INVERTER_PORT, uartMessBuff, strnlen(uartMessBuff, UART_MESSBUF_SIZE));
+    //while (Inverter.read() != 'P');
+    do {
+      uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
+    } while (c != 'P');
     message = "reset";
   }
   else
@@ -327,14 +511,18 @@ static void handleUpdate()
 
     while (repeat)
     {
-      Serial.write(buffer, sizeof(buffer));
-      while (!Serial.available());
-      char res = Serial.read();
+      //Inverter.write(buffer, sizeof(buffer));
+      uart_write_bytes(INVERTER_PORT, buffer, sizeof(buffer));
+      //while (!Inverter.available());
+      char res;// = Inverter.read();
+      while(uart_read_bytes(INVERTER_PORT, &res, 1, UART_TIMEOUT)<=0);
 
       if ('C' == res) {
-        Serial.write((char*)&crc, sizeof(uint32_t));
-        while (!Serial.available());
-        res = Serial.read();
+        //Inverter.write((char*)&crc, sizeof(uint32_t));
+        uart_write_bytes(INVERTER_PORT, (char*)&crc, sizeof(uint32_t));
+        //while (!Inverter.available());
+        //res = Inverter.read();
+        while(uart_read_bytes(INVERTER_PORT, &res, 1, UART_TIMEOUT)<=0);
       }
 
       switch (res) {
@@ -344,7 +532,10 @@ static void handleUpdate()
           fastUartAvailable = true;
           break;
         case 'E':
-          while (Serial.read() != 'T');
+          //while (Inverter.read() != 'T');
+          do {
+            uart_read_bytes(INVERTER_PORT, uartMessBuff, 1, UART_TIMEOUT);
+          } while (uartMessBuff[0] != 'T');
           break;
         case 'P':
           message = "Page write success";
@@ -408,8 +599,51 @@ void staCheck(){
 }
 
 void setup(void){
-  Serial.begin(115200);
-  Serial.setTimeout(100);
+  DBG_OUTPUT_PORT.begin(115200);
+  //Inverter.setRxBufferSize(50000);
+  //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
+  //Need to use low level Espressif IDF API instead of Serial to get high enough data rates
+  uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE};
+
+  uart_param_config(INVERTER_PORT, &uart_config);
+  uart_set_pin(INVERTER_PORT, INVERTER_TX, INVERTER_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  uart_driver_install(INVERTER_PORT, SDIO_BUFFER_SIZE * 3, 0, 0, NULL, 0); //x3 allows twice card write size to buffer while writes
+  delay(100);        
+
+  //check for external RTC and if present use to initialise on-chip RTC
+  if (ext_rtc.begin())
+  {
+    haveRTC = true;
+    DBG_OUTPUT_PORT.println("External RTC found");  
+    if (! ext_rtc.initialized() || ext_rtc.lostPower()) 
+    {
+      DBG_OUTPUT_PORT.println("RTC is NOT initialized, setting to build time");
+      ext_rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    }
+
+    ext_rtc.start();
+    DateTime now = ext_rtc.now();
+    int_rtc.setTime(now.unixtime());  
+  }
+  else
+    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names"); 
+
+  //initialise SD card in SDIO mode
+  if (SD_MMC.begin()) 
+  {
+    DBG_OUTPUT_PORT.println("Started SD_MMC");  
+    nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
+    haveSDCard = true;    
+  }
+  else
+    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");  
+
+  //Start SPI Flash file system
   SPIFFS.begin();
 
   //WIFI INIT
@@ -417,9 +651,9 @@ void setup(void){
     enableWiFiAtBootTime();
   #endif
   WiFi.mode(WIFI_AP_STA);
-  WiFi.setPhyMode(WIFI_PHY_MODE_11B);
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
-  WiFi.setOutputPower(25); //dbm
+  //WiFi.setPhyMode(WIFI_PHY_MODE_11B);
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);//25); //dbm
   WiFi.begin();
   sta_tick.attach(10, staCheck);
   
@@ -700,7 +934,7 @@ void setup(void){
           swd.reset();
           swd.unlockFlash();
 
-          pinMode(LED_BUILTIN, OUTPUT);
+          //pinMode(LED_BUILTIN, OUTPUT);
 
           uint32_t addrNext = addr;
           uint32_t addrIndex = addr;
@@ -714,7 +948,7 @@ void setup(void){
               swd.flashloaderSRAM(); //load flashloader to SRAM @ 0x20000000
             }
 
-            digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+            //digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
             
             uint8_t PAGE_SIZE = 6; //webserver max chunks
             for (uint8_t p = 0; p < PAGE_SIZE; p++)
@@ -757,7 +991,7 @@ void setup(void){
           SPIFFS.remove("/" + filename);
 
           server.sendContent(""); //end stream
-          digitalWrite(LED_BUILTIN, HIGH); //OFF
+          //digitalWrite(LED_BUILTIN, HIGH); //OFF
         } else {
           server.send(200, "text/plain", "File Error");
         }
@@ -785,7 +1019,93 @@ void setup(void){
 }
  
 void loop(void){
+  // note: ArduinoOTA.handle() calls MDNS.update();
   server.handleClient();
   ArduinoOTA.handle();
-  // note: ArduinoOTA.handle() calls MDNS.update();
+
+  if(haveSDCard && fastLoggingEnabled)  
+  {
+    if(WiFi.softAPgetStationNum() == 0) //no connected stations so do fast debug
+    {
+      if(fastLoggingActive) //already active, just carry on writing data
+      {
+        int spaceAvail = SDIO_BUFFER_SIZE - indexSDIObuffer;
+        int bytesRead = uart_read_bytes(INVERTER_PORT, &SDIObuffer[indexSDIObuffer], spaceAvail, UART_TIMEOUT);
+        if(bytesRead > 0)
+        {
+          indexSDIObuffer += bytesRead;
+          if(indexSDIObuffer >= SDIO_BUFFER_SIZE)
+          {
+            dataFile.write(SDIObuffer, SDIO_BUFFER_SIZE);
+            indexSDIObuffer = 0;
+            blockCountSD++;
+            if(blockCountSD >= FLUSH_WRITES)
+            {
+              blockCountSD = 0;
+              dataFile.flush();
+            }
+          }
+        }
+      }
+      else //not active so start
+      {
+        if(createNextSDFile())
+        {
+          sendCommand(""); //flush out buffer in case just had power up
+          delay(10);
+          sendCommand("binarylogging 1"); //send start logging command to inverter
+          delayMicroseconds(200);
+          if (uart_readStartsWith("OK"))
+          {
+            uart_set_baudrate(INVERTER_PORT, 2250000);
+            fastLoggingActive = true;
+            DBG_OUTPUT_PORT.println("Binary logging started");
+          }
+          else //no response - in case it did actually switch but we missed response send the turn off command
+          {
+            uart_set_baudrate(INVERTER_PORT, 2250000);
+            uart_write_bytes(INVERTER_PORT, "\n", 1);
+            delay(1);
+            uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+            uart_write_bytes(INVERTER_PORT, "\n", 1);
+            uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
+            uart_set_baudrate(INVERTER_PORT, 115200);
+          }
+          delay(10);
+          uart_flush(INVERTER_PORT);
+        }
+      }
+    }
+    else
+    {
+      if(fastLoggingActive) //was it active last pass
+      {
+        uart_write_bytes(INVERTER_PORT, "\n", 1);
+        delay(1);
+        uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+        uart_write_bytes(INVERTER_PORT, "\n", 1);
+        uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
+        uart_set_baudrate(INVERTER_PORT, 115200);
+        delay(10);
+        uart_flush(INVERTER_PORT);
+        //data should now have stopped so send command again and check response
+        sendCommand("binarylogging 0");
+        if (uart_readStartsWith("OK"))
+        {
+          uart_set_baudrate(INVERTER_PORT, 115200);
+          fastUart = false;
+          fastLoggingActive = false;
+          dataFile.flush(); //make sure up to date
+          dataFile.close();
+          DBG_OUTPUT_PORT.println("Binary logging terminated");
+        }
+        else
+        { //assume still logging so try again next time round
+          uart_set_baudrate(INVERTER_PORT, 2250000);
+        }
+        delay(10);
+        uart_flush(INVERTER_PORT);
+      }
+    }
+  }    
 }
