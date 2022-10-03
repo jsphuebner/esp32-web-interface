@@ -1,4 +1,4 @@
-esp8266-web-interface
+esp32-web-interface
 =====================
 Web interface for Huebner inverter
 
@@ -50,39 +50,25 @@ The board announces itself to the world using mDNS protocol (aka Bonjour, or Ren
 So first try to reach it on http://inverter.local/
 
 # Hardware
-The web interface has been initially designed to run on ESP8266 boards, such as:
-* [Olimex MOD-WIFI-ESP8266](https://www.olimex.com/Products/IoT/ESP8266/MOD-WIFI-ESP8266/open-source-hardware)
+The web interface has been initially designed to run on ESP32-WROOM-32E boards.
 
-(Pay attention to the SPI flash chip on your board: some need a special mode `QOUT` instead of `QIO` for programming)
+A SD card running in SDIO mode can be connected (CLK to pin2, CMD to pin15, D0 to Pin2, D1 to Pin4, D2 to Pin12, D3 to Pin13).
 
-You can buy pre-programmed boards:
-* [OpenInverter shop](https://openinverter.org/shop/index.php?route=product/product&path=59&product_id=56)
-* [EVBMW Shop](https://www.evbmw.com/index.php/evbmw-webshop/vcu-boards/wifi-progged) (Note : you can choose between OpenInverter or Lexus VCU firmware version )
+A RTC can be connected.  As standard a PCF8523 is suported but any clock supported by RTClib can be used with a sketch change.
 
 # Firmware
-You can find pre-compiled versions of the firmware on the [OpenInverter forum](https://openinverter.org/forum), or can compile it yourself
-by following the [instructions below](#development).
+Tompile it follow the [instructions below](#development).
 
 # Flashing / Upgrading
 ## Wirelessly
-If your board is already programmed with this esp8266-web-interface firmware, or with a firmware that has either ESP8266HTTPUpdateServer or ArduinoOTA components compiled in (it may be the case with the default firmware when you buy a new module), and if you can already reach it (WiFi + network); then you can use one of these approachs:
-
-* Using ESP8266HTTPUpdateServer component
-  * Either go to http://inverter.local/update and upload the binary firmware file
-  * Or use this command line `curl -F "image=@firmware.bin" inverter.local/update`
-* Using the ArduinoOTA component
-  * Use the `espota.py` tool (available in the Arduino tools) to upload either a binary firmware file, or a binary filesystem file:
-    * Firmware: `python ..../Arduino15/packages/esp8266/hardware/esp8266/3.0.2/tools/espota.py -i esp8266-761bb8.local --progress  --file firmware.bin`
-    * Filesystem: `python ..../Arduino15/packages/esp8266/hardware/esp8266/3.0.2/tools/espota.py -i esp8266-761bb8.local --spiffs --progress --file spiffs.bin`
-  * Using your development environment (see the [instructions below](#development))
+TBA
 
 ## Wired
 If your board is new and unprogrammed, or if you want to fully re-program it, you'll need to have a wired connection between your computer and the board.
-Assuming you're using the original Olimex board, you'll need :
-* A 3.3v capable USB / Serial adapter
+You'll either need a ESP32 board with an on board USB to serial converter or a 3.3v capable USB / Serial adapter
 * the following connections:  
 
-Pin#  | ESP8266 Board Function | USB / Serial adapter
+Pin#  | ESP32 Board Function | USB / Serial adapter
 ----- | ---------------------- | --------------------
 1     | +3.3v input            | (Some adapters provide a +3.3v output, you can use it)
 2     | GND                    | GND
