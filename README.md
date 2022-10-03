@@ -56,6 +56,8 @@ A SD card running in SDIO mode can be connected (CLK to pin2, CMD to pin15, D0 t
 
 A RTC can be connected.  As standard a PCF8523 is suported but any clock supported by RTClib can be used with a sketch change. (SCLK to Pin22, SDA to Pin21). 
 
+The connection to the inverter are on Pin16 (Rx line connect to inverter Tx line) and Pin17 (Tx line connect to inverter Rx line).
+
 # Firmware
 Tompile it follow the [instructions below](#development).
 
