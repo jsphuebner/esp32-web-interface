@@ -298,6 +298,21 @@ void handleRTCNow() {
   output += "\"}";
   server.send(200, "text/json", output);
 }
+
+void handleRTCSet() {
+
+ if (server.hasArg("timestamp")) {
+    String timestamp = server.arg("timestamp");
+    server.send(200, "text/json", "{\"result\":\"" + timestamp + "\"}");
+    DateTime now = DateTime(timestamp.toInt());
+    ext_rtc.adjust(now);
+    int_rtc.setTime(now.unixtime());  
+    
+ } else {
+    server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
+
+ }
+}
 void handleFileList() {
   String path = "/";
   if(server.hasArg("dir")) 
@@ -679,6 +694,7 @@ void setup(void){
   server.on("/list", HTTP_GET, handleFileList);
 
   server.on("/rtc/now", HTTP_GET, handleRTCNow);
+  server.on("/rtc/set", HTTP_POST, handleRTCSet);
 
 
   //load editor
