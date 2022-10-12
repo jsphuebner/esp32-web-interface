@@ -287,6 +287,17 @@ void handleFileCreate(){
   path = String();
 }
 
+void handleRTCNow() {
+  String output = "{ \"now\":\"";
+  if (haveRTC) {
+    DateTime t = ext_rtc.now();
+    output += t.timestamp();
+  } else {
+    output += "NO RTC";
+  }
+  output += "\"}";
+  server.send(200, "text/json", output);
+}
 void handleFileList() {
   String path = "/";
   if(server.hasArg("dir")) 
@@ -666,6 +677,10 @@ void setup(void){
   ArduinoOTA.begin();
   //list directory
   server.on("/list", HTTP_GET, handleFileList);
+
+  server.on("/rtc/now", HTTP_GET, handleRTCNow);
+
+
   //load editor
   server.on("/edit", HTTP_GET, [](){
     if(!handleFileRead("/edit.htm")) server.send(404, "text/plain", "FileNotFound");
