@@ -205,6 +205,7 @@ String formatBytes(uint64_t bytes){
 
 String getContentType(String filename){
   if(server.hasArg("download")) return "application/octet-stream";
+  else if(filename.endsWith(".bin")) return "application/octet-stream";
   else if(filename.endsWith(".htm")) return "text/html";
   else if(filename.endsWith(".html")) return "text/html";
   else if(filename.endsWith(".css")) return "text/css";
@@ -232,6 +233,19 @@ bool handleFileRead(String path){
     size_t sent = server.streamFile(file, contentType);
     file.close();
     return true;
+  }
+  //try download from the sdcard
+  if (haveSDCard) {
+    DBG_OUTPUT_PORT.print("handleFileRead Trying SD Card: ");
+    DBG_OUTPUT_PORT.println(path);
+    DBG_OUTPUT_PORT.print("SD_MMC.exists: ");
+    DBG_OUTPUT_PORT.println(path);
+    if (SD_MMC.exists(path)) {
+      File file = SD_MMC.open(path, "r");
+      size_t sent = server.streamFile(file, contentType);
+      file.close();
+    return true;
+    }
   }
   return false;
 }
@@ -307,12 +321,45 @@ void handleRTCSet() {
     DateTime now = DateTime(timestamp.toInt());
     ext_rtc.adjust(now);
     int_rtc.setTime(now.unixtime());  
-    
+    handleRTCNow();
  } else {
     server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
 
  }
 }
+
+void handleSdCardList() {
+  
+  if (!haveSDCard) {
+    server.send(200, "text/json", "{\"error\": \"No SD Card\"}");
+    return;
+  }
+  File root = SD_MMC.open("/");
+  if(!root){
+    server.send(200, "text/json", "{\"error\": \"Failed to open directory\"}");
+    return;
+  }
+  if(!root.isDirectory()){
+    server.send(200, "text/json", "{\"error\": \"Root is not a directory\"}");
+    return;
+  }
+  File sdFile = root.openNextFile();
+  String output = "[";
+  int count = 0;
+  while(sdFile && count < 200){
+    if (output != "[") output += ',';
+    output += "\"";
+    output += String(sdFile.name()).substring(1);
+    output += "\"";
+    sdFile = root.openNextFile();
+
+    count++;
+  }
+  output += "]";
+  server.send(200, "text/json", output);
+  return;
+}
+
 void handleFileList() {
   String path = "/";
   if(server.hasArg("dir")) 
@@ -660,8 +707,7 @@ void setup(void){
     DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names"); 
 
   //initialise SD card in SDIO mode
-  if (SD_MMC.begin()) 
-  {
+  if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
     DBG_OUTPUT_PORT.println("Started SD_MMC");  
     nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
     haveSDCard = true;    
@@ -695,6 +741,7 @@ void setup(void){
 
   server.on("/rtc/now", HTTP_GET, handleRTCNow);
   server.on("/rtc/set", HTTP_POST, handleRTCSet);
+  server.on("/sdcard/list", HTTP_GET, handleSdCardList);
 
 
   //load editor
@@ -1056,7 +1103,7 @@ void loop(void){
 
   if(haveSDCard && fastLoggingEnabled)  
   {
-    if(WiFi.softAPgetStationNum() == 0) //no connected stations so do fast debug
+    if(WiFi.softAPgetStationNum() == 0 && false) //no connected stations so do fast debug
     {
       if(fastLoggingActive) //already active, just carry on writing data
       {
