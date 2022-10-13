@@ -104,6 +104,7 @@ uint8_t SDIObuffer[SDIO_BUFFER_SIZE];
 uint16_t indexSDIObuffer = 0;
 uint16_t blockCountSD = 0;
 File dataFile;
+int startLogAttempt = 0;
 
 bool createNextSDFile()
 {
@@ -1127,35 +1128,41 @@ void loop(void){
       }
       else //not active so start
       {
-        if(createNextSDFile())
+        if(startLogAttempt < 3)
         {
-          sendCommand(""); //flush out buffer in case just had power up
-          delay(10);
-          sendCommand("binarylogging 1"); //send start logging command to inverter
-          delayMicroseconds(200);
-          if (uart_readStartsWith("OK"))
+          startLogAttempt++;
+          if(createNextSDFile())
           {
-            uart_set_baudrate(INVERTER_PORT, 2250000);
-            fastLoggingActive = true;
-            DBG_OUTPUT_PORT.println("Binary logging started");
+            sendCommand(""); //flush out buffer in case just had power up
+            delay(10);
+            sendCommand("binarylogging 1"); //send start logging command to inverter
+            delayMicroseconds(200);
+            if (uart_readStartsWith("OK"))
+            {
+              uart_set_baudrate(INVERTER_PORT, 2250000);
+              fastLoggingActive = true;
+              DBG_OUTPUT_PORT.println("Binary logging started");
+            }
+            else //no response - in case it did actually switch but we missed response send the turn off command
+            {
+              dataFile.close();
+              uart_set_baudrate(INVERTER_PORT, 2250000);
+              uart_write_bytes(INVERTER_PORT, "\n", 1);
+              delay(1);
+              uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+              uart_write_bytes(INVERTER_PORT, "\n", 1);
+              uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
+              uart_set_baudrate(INVERTER_PORT, 115200);
+            }
+            delay(10);
+            uart_flush(INVERTER_PORT);
           }
-          else //no response - in case it did actually switch but we missed response send the turn off command
-          {
-            uart_set_baudrate(INVERTER_PORT, 2250000);
-            uart_write_bytes(INVERTER_PORT, "\n", 1);
-            delay(1);
-            uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
-            uart_write_bytes(INVERTER_PORT, "\n", 1);
-            uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
-            uart_set_baudrate(INVERTER_PORT, 115200);
-          }
-          delay(10);
-          uart_flush(INVERTER_PORT);
         }
       }
     }
     else
     {
+      startLogAttempt=0; //restart log attempts when next disconnected
       if(fastLoggingActive) //was it active last pass
       {
         uart_write_bytes(INVERTER_PORT, "\n", 1);
