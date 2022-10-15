@@ -239,7 +239,8 @@ bool handleFileRead(String path){
     DBG_OUTPUT_PORT.print("handleFileRead Trying SD Card: ");
     DBG_OUTPUT_PORT.println(path);
     DBG_OUTPUT_PORT.print("SD_MMC.exists: ");
-    DBG_OUTPUT_PORT.println(path);
+    DBG_OUTPUT_PORT.println(SD_MMC.exists( path));
+
     if (SD_MMC.exists(path)) {
       File file = SD_MMC.open(path, "r");
       size_t sent = server.streamFile(file, contentType);
@@ -327,7 +328,25 @@ void handleRTCSet() {
 
  }
 }
+void handleSdCardDeleteAll() {
+    if (haveSDCard) {
+      File root, file;
+      if (haveSDCard) {
+        root = SD_MMC.open("/");
+        while(file = root.openNextFile())
+        { 
+          String filename = file.name();
+          if(SD_MMC.remove("/" + filename))
+            DBG_OUTPUT_PORT.println("Deleted file: " + filename);
+          else
+            DBG_OUTPUT_PORT.println("Couldn't delete: " + filename);
+          }
+      }
+    }
 
+    server.send(200, "text/json", "{\"result\": \"done\"}");
+
+}
 void handleSdCardList() {
   
   if (!haveSDCard) {
@@ -349,7 +368,7 @@ void handleSdCardList() {
   while(sdFile && count < 200){
     if (output != "[") output += ',';
     output += "\"";
-    output += String(sdFile.name()).substring(1);
+    output += String(sdFile.name());
     output += "\"";
     sdFile = root.openNextFile();
 
@@ -707,8 +726,9 @@ void setup(void){
     DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names"); 
 
   //initialise SD card in SDIO mode
-  if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
-    DBG_OUTPUT_PORT.println("Started SD_MMC");  
+  //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
+  if (SD_MMC.begin()) {
+    DBG_OUTPUT_PORT.println("Started SD_MMC");    
     nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
     haveSDCard = true;    
   }
@@ -742,7 +762,7 @@ void setup(void){
   server.on("/rtc/now", HTTP_GET, handleRTCNow);
   server.on("/rtc/set", HTTP_POST, handleRTCSet);
   server.on("/sdcard/list", HTTP_GET, handleSdCardList);
-
+  server.on("/sdcard/deleteAll", HTTP_GET, handleSdCardDeleteAll);
 
   //load editor
   server.on("/edit", HTTP_GET, [](){
