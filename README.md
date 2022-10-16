@@ -52,7 +52,7 @@ So first try to reach it on http://inverter.local/
 # Hardware
 The web interface has been initially designed to run on ESP32-WROOM-32E boards.
 
-A SD card running in SDIO mode can be connected (CLK to pin2, CMD to pin15, D0 to Pin2, D1 to Pin4, D2 to Pin12, D3 to Pin13).
+A SD card running in SDIO mode can be connected (CLK to pin14, CMD to pin15, D0 to Pin2, D1 to Pin4, D2 to Pin12, D3 to Pin13).
 
 A RTC can be connected.  As standard a PCF8523 is suported but any clock supported by RTClib can be used with a sketch change. (SCLK to Pin22, SDA to Pin21). 
 
