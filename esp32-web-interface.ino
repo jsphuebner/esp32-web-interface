@@ -64,9 +64,11 @@
 #define UART_MESSBUF_SIZE 100
 #define LED_BUILTIN 13 //clashes with SDIO, need to change to suit hardware and uncomment lines
 
-#define RESERVED_SD_SPACE 31000000000 //2000000000
+#define RESERVED_SD_SPACE 2000000000
 #define SDIO_BUFFER_SIZE 16384
 #define FLUSH_WRITES 60 //flush file every 60 blocks
+
+#define MAX_SD_FILES 200
 
 //HardwareSerial Inverter(INVERTER_PORT);
 
@@ -95,7 +97,6 @@ ARMDebug swd(swd_clock_pin, swd_data_pin, ARMDebug::LOG_NONE);
 
 RTC_PCF8523 ext_rtc;
 ESP32Time int_rtc;
-uint32_t nextFileIndex = 0;
 bool haveRTC = false;
 bool haveSDCard = false;
 bool fastLoggingEnabled = true;
@@ -109,6 +110,9 @@ int startLogAttempt = 0;
 bool createNextSDFile()
 {
   char filename[50];
+
+  uint32_t nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
+
   if(haveRTC)
     nextFileIndex = 0; //have a date so restart index from 0 (still needed in case serial stream fails to start)
 
@@ -140,17 +144,19 @@ uint32_t deleteOldest(uint64_t spaceRequired)
   uint64_t spaceRem;
   time_t t;
   uint32_t nextIndex = 0;
+  uint32_t fileCount = 0;
   
   spaceRem = SD_MMC.totalBytes() - SD_MMC.usedBytes();
 
   DBG_OUTPUT_PORT.println("Space Required = " + formatBytes(spaceRequired));
   DBG_OUTPUT_PORT.println("Space Remaining = " + formatBytes(spaceRem));
   
-  while(spaceRem < spaceRequired)
+  do
   {
     root = SD_MMC.open("/");
     
     oldestTime = 0;
+    fileCount = 0;
     while(file = root.openNextFile())
     {
       if(haveRTC)
@@ -163,31 +169,41 @@ uint32_t deleteOldest(uint64_t spaceRequired)
         if(t > nextIndex)
           nextIndex = t;
       }
-      if(!file.isDirectory() && ((oldestTime==0) || (t<oldestTime)))
+      if(!file.isDirectory())
       {
-        oldestTime = t;
-        oldestFileName = "/";
-        oldestFileName += file.name();
+        fileCount++;
+        if((oldestTime==0) || (t<oldestTime))
+        {
+          oldestTime = t;
+          oldestFileName = "/";
+          oldestFileName += file.name();
+        }
       }
       file.close();
     }  
     root.close();
 
-    
-    if(oldestFileName.length() > 0)
+    if((spaceRem < spaceRequired) || (fileCount >= MAX_SD_FILES))
     {
-      
-      if(SD_MMC.remove(oldestFileName))
-        DBG_OUTPUT_PORT.println("Deleted file: " + oldestFileName);
+      if(oldestFileName.length() > 0)
+      {
+        
+        if(SD_MMC.remove(oldestFileName))
+          DBG_OUTPUT_PORT.println("Deleted file: " + oldestFileName);
+        else
+          DBG_OUTPUT_PORT.println("Couldn't delete: " + oldestFileName);
+      }
       else
-        DBG_OUTPUT_PORT.println("Couldn't delete: " + oldestFileName);
+      {
+        DBG_OUTPUT_PORT.println("No files found, can't free space");
+        break;//no files so can do no more
+      }
     }
-    else
-    {
-      DBG_OUTPUT_PORT.println("No files found, can't free space");
-      break;//no files so can do no more
-    }
-  }
+
+    spaceRem = SD_MMC.totalBytes() - SD_MMC.usedBytes();
+  } while((spaceRem < spaceRequired) || (fileCount >= MAX_SD_FILES));
+
+
   return(nextIndex);
 }
 
@@ -730,7 +746,6 @@ void setup(void){
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
   if (SD_MMC.begin()) {
     DBG_OUTPUT_PORT.println("Started SD_MMC");    
-    nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
     haveSDCard = true;    
   }
   else
@@ -1116,101 +1131,107 @@ void setup(void){
 
   MDNS.addService("http", "tcp", 80);
 }
+
+void binaryLoggingStart()
+{
+  if(createNextSDFile())
+  {
+    sendCommand(""); //flush out buffer in case just had power up
+    delay(10);
+    sendCommand("binarylogging 1"); //send start logging command to inverter
+    delayMicroseconds(200);
+    if (uart_readStartsWith("OK"))
+    {
+      uart_set_baudrate(INVERTER_PORT, 2250000);
+      fastLoggingActive = true;
+      DBG_OUTPUT_PORT.println("Binary logging started");
+    }
+    else //no response - in case it did actually switch but we missed response send the turn off command
+    {
+      dataFile.close();
+      uart_set_baudrate(INVERTER_PORT, 2250000);
+      uart_write_bytes(INVERTER_PORT, "\n", 1);
+      delay(1);
+      uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+      uart_write_bytes(INVERTER_PORT, "\n", 1);
+      uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
+      uart_set_baudrate(INVERTER_PORT, 115200);
+    }
+    delay(10);
+    uart_flush(INVERTER_PORT);
+  }
+}
+
+void binaryLoggingStop()
+{
+  uart_write_bytes(INVERTER_PORT, "\n", 1);
+  delay(1);
+  uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+  uart_write_bytes(INVERTER_PORT, "\n", 1);
+  uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
+  uart_set_baudrate(INVERTER_PORT, 115200);
+  delay(100);
+  uart_flush(INVERTER_PORT);
+  //data should now have stopped so send command again and check response
+  sendCommand("binarylogging 0");
+  if (uart_readStartsWith("OK"))
+  {
+    uart_set_baudrate(INVERTER_PORT, 115200);
+    fastUart = false;
+    fastLoggingActive = false;
+    dataFile.flush(); //make sure up to date
+    dataFile.close();
+    DBG_OUTPUT_PORT.println("Binary logging terminated");
+  }
+  else
+  { //assume still logging so try again next time round
+    uart_set_baudrate(INVERTER_PORT, 2250000);
+  }
+  delay(10);
+  uart_flush(INVERTER_PORT);
+}
+
  
 void loop(void){
   // note: ArduinoOTA.handle() calls MDNS.update();
   server.handleClient();
   ArduinoOTA.handle();
 
-  if(haveSDCard && fastLoggingEnabled)  
-  {
-    if(WiFi.softAPgetStationNum() == 0 && false) //no connected stations so do fast debug
+  if((WiFi.softAPgetStationNum() > 0) || (WiFi.status() == WL_CONNECTED))
+  { //have connections so stop logging
+    startLogAttempt=0; //restart log attempts when next disconnected
+    if(fastLoggingActive) //was it active last pass
+      binaryLoggingStop();
+  }
+  else
+  { //no connections so log
+    if(fastLoggingActive) //already active, just carry on writing data
     {
-      if(fastLoggingActive) //already active, just carry on writing data
+      int spaceAvail = SDIO_BUFFER_SIZE - indexSDIObuffer;
+      int bytesRead = uart_read_bytes(INVERTER_PORT, &SDIObuffer[indexSDIObuffer], spaceAvail, UART_TIMEOUT);
+      if(bytesRead > 0)
       {
-        int spaceAvail = SDIO_BUFFER_SIZE - indexSDIObuffer;
-        int bytesRead = uart_read_bytes(INVERTER_PORT, &SDIObuffer[indexSDIObuffer], spaceAvail, UART_TIMEOUT);
-        if(bytesRead > 0)
+        indexSDIObuffer += bytesRead;
+        if(indexSDIObuffer >= SDIO_BUFFER_SIZE)
         {
-          indexSDIObuffer += bytesRead;
-          if(indexSDIObuffer >= SDIO_BUFFER_SIZE)
+          dataFile.write(SDIObuffer, SDIO_BUFFER_SIZE);
+          indexSDIObuffer = 0;
+          blockCountSD++;
+          if(blockCountSD >= FLUSH_WRITES)
           {
-            dataFile.write(SDIObuffer, SDIO_BUFFER_SIZE);
-            indexSDIObuffer = 0;
-            blockCountSD++;
-            if(blockCountSD >= FLUSH_WRITES)
-            {
-              blockCountSD = 0;
-              dataFile.flush();
-            }
-          }
-        }
-      }
-      else //not active so start
-      {
-        if(startLogAttempt < 3)
-        {
-          startLogAttempt++;
-          if(createNextSDFile())
-          {
-            sendCommand(""); //flush out buffer in case just had power up
-            delay(10);
-            sendCommand("binarylogging 1"); //send start logging command to inverter
-            delayMicroseconds(200);
-            if (uart_readStartsWith("OK"))
-            {
-              uart_set_baudrate(INVERTER_PORT, 2250000);
-              fastLoggingActive = true;
-              DBG_OUTPUT_PORT.println("Binary logging started");
-            }
-            else //no response - in case it did actually switch but we missed response send the turn off command
-            {
-              dataFile.close();
-              uart_set_baudrate(INVERTER_PORT, 2250000);
-              uart_write_bytes(INVERTER_PORT, "\n", 1);
-              delay(1);
-              uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
-              uart_write_bytes(INVERTER_PORT, "\n", 1);
-              uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
-              uart_set_baudrate(INVERTER_PORT, 115200);
-            }
-            delay(10);
-            uart_flush(INVERTER_PORT);
+            blockCountSD = 0;
+            dataFile.flush();
           }
         }
       }
     }
-    else
+    else //not active so start
     {
-      startLogAttempt=0; //restart log attempts when next disconnected
-      if(fastLoggingActive) //was it active last pass
+      if(haveSDCard && fastLoggingEnabled && (startLogAttempt < 3))
       {
-        uart_write_bytes(INVERTER_PORT, "\n", 1);
-        delay(1);
-        uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
-        uart_write_bytes(INVERTER_PORT, "\n", 1);
-        uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
-        uart_set_baudrate(INVERTER_PORT, 115200);
-        delay(10);
-        uart_flush(INVERTER_PORT);
-        //data should now have stopped so send command again and check response
-        sendCommand("binarylogging 0");
-        if (uart_readStartsWith("OK"))
-        {
-          uart_set_baudrate(INVERTER_PORT, 115200);
-          fastUart = false;
-          fastLoggingActive = false;
-          dataFile.flush(); //make sure up to date
-          dataFile.close();
-          DBG_OUTPUT_PORT.println("Binary logging terminated");
-        }
-        else
-        { //assume still logging so try again next time round
-          uart_set_baudrate(INVERTER_PORT, 2250000);
-        }
-        delay(10);
-        uart_flush(INVERTER_PORT);
+        startLogAttempt++;
+        binaryLoggingStart();
       }
     }
-  }    
+  }
 }
