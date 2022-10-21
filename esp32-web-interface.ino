@@ -70,6 +70,8 @@
 
 #define MAX_SD_FILES 200
 
+#define LOG_DELAY_VAL 10000
+
 //HardwareSerial Inverter(INVERTER_PORT);
 
 const char* host = "inverter";
@@ -722,7 +724,8 @@ void setup(void){
   uart_param_config(INVERTER_PORT, &uart_config);
   uart_set_pin(INVERTER_PORT, INVERTER_TX, INVERTER_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   uart_driver_install(INVERTER_PORT, SDIO_BUFFER_SIZE * 3, 0, 0, NULL, 0); //x3 allows twice card write size to buffer while writes
-  delay(100);        
+  delay(100); 
+  
 
   //check for external RTC and if present use to initialise on-chip RTC
   if (ext_rtc.begin())
@@ -1227,7 +1230,7 @@ void loop(void){
     }
     else //not active so start
     {
-      if(haveSDCard && fastLoggingEnabled && (startLogAttempt < 3))
+      if(haveSDCard && fastLoggingEnabled && (startLogAttempt < 3) && (millis() > LOG_DELAY_VAL))
       {
         startLogAttempt++;
         binaryLoggingStart();
