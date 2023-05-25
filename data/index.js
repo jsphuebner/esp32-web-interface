@@ -418,11 +418,9 @@ function uploadFile()
 	{
 		if (file.endsWith(".bin"))
 		{
-			document.getElementById("bar").innerHTML = "<p>Upload Complete</p>";
 			runUpdate(-1, "/" + file);
-		}else{
-			document.getElementById("bar").innerHTML = "<p>.bin File Only</p>";
 		}
+    	document.getElementById("bar").innerHTML = "<p>Upload Complete</p>";
 		setTimeout(function() { document.getElementById("bar").innerHTML = "" }, 5000);
 	}
 

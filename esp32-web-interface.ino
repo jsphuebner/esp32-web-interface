@@ -23,9 +23,9 @@
   edit the page by going to http://esp8266fs.local/edit
 */
 /*
- * This file is part of the esp8266 web interface
+ * This file is part of the esp32 web interface
  *
- * Copyright (C) 2018 Johannes Huebner <dev@johanneshuebner.com>
+ * Copyright (C) 2023 Johannes Huebner <dev@johanneshuebner.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,12 +49,14 @@
 #include <ArduinoOTA.h>
 #include <FS.h>
 #include <Ticker.h>
+#include <StreamString.h>
 
 #include <SD_MMC.h>
 #include "RTClib.h"
 #include <ESP32Time.h>
 #include <time.h>
 #include "driver/uart.h"
+#include "src/oi_can.h"
 
 #define DBG_OUTPUT_PORT Serial
 #define INVERTER_PORT UART_NUM_2
@@ -78,24 +80,14 @@ const char* host = "inverter";
 bool fastUart = false;
 bool fastUartAvailable = true;
 char uartMessBuff[UART_MESSBUF_SIZE];
+char jsonFileName[50];
+//DynamicJsonDocument jsonDoc(30000);
 
 WebServer server(80);
 HTTPUpdateServer updater;
 //holds the current upload
 File fsUploadFile;
 Ticker sta_tick;
-
-//SWD over ESP8266
-/*
-  https://github.com/scanlime/esp8266-arm-swd
-*/
-#include "src/arm_debug.h"
-#include <StreamString.h>
-uint32_t addr = 0x08000000;
-uint32_t addrEnd = 0x0801ffff;
-const uint8_t swd_clock_pin = 4; //GPIO4 (D2)
-const uint8_t swd_data_pin = 5; //GPIO5 (D1)
-ARMDebug swd(swd_clock_pin, swd_data_pin, ARMDebug::LOG_NONE);
 
 RTC_PCF8523 ext_rtc;
 ESP32Time int_rtc;
@@ -418,7 +410,7 @@ void handleFileList() {
     output += "{\"type\":\"";
     output += file.isDirectory()?"dir":"file";
     output += "\",\"name\":\"";
-    output += String(file.name()).substring(1);
+    output += String(file.name());
     output += "\"}";
     file = root.openNextFile();
   }
@@ -426,18 +418,6 @@ void handleFileList() {
   output += "]";
   server.send(200, "text/json", output);
 }
-
-// static void sendCommand(String cmd)
-// {
-//   DBG_OUTPUT_PORT.println("Sending '" + cmd + "' to inverter");
-//   Inverter.print("\n");
-//   delay(1);
-//   while(Inverter.available())
-//     Inverter.read(); //flush all previous output
-//   Inverter.print(cmd);
-//   Inverter.print("\n");
-//   Inverter.readStringUntil('\n'); //consume echo  
-// }
 
 void uart_readUntill(char val)
 {
@@ -486,50 +466,46 @@ static void handleCommand() {
   const int cmdBufSize = 128;
   if(!server.hasArg("cmd")) {server.send(500, "text/plain", "BAD ARGS"); return;}
 
-  String cmd = server.arg("cmd").substring(0, cmdBufSize);
-  int repeat = 0;
-  char buffer[255];
-  size_t len = 0;
-  String output;
-
-  if (server.hasArg("repeat"))
-    repeat = server.arg("repeat").toInt();
-
-  if (!fastUart && fastUartAvailable)
-  {
-    sendCommand("fastuart");
-    if (uart_readStartsWith("OK"))
-    {
-      //Inverter.begin(921600, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
-      //Inverter.updateBaudRate(921600);
-      uart_set_baudrate(INVERTER_PORT, 921600);
-      fastUart = true;
-    }
-    else
-    {
-      fastUartAvailable = false;
+  String cmd = server.arg("cmd");
+  
+  if (cmd == "json") {
+    OICan::SendJson(server.client());
+  }
+  else if (cmd.startsWith("set")) {
+    String str(cmd);
+    int nameStart = str.indexOf(' ');
+    int valueStart = str.lastIndexOf(' ');
+    String name = str.substring(nameStart, valueStart);
+    double value = str.substring(valueStart, str.indexOf('\r')).toDouble();
+    name.trim();
+    
+    switch (OICan::SetValue(name, value)) {
+      case OICan::Ok:
+        server.send(200, "text/plain", "Set Ok");
+        break;
+      case OICan::UnknownIndex:
+        server.send(200, "text/plain", "Unknown Parameter");
+        break;
+      case OICan::ValueOutOfRange:
+        server.send(200, "text/plain", "Value out of range");
+        break;
+      case OICan::CommError:
+        server.send(200, "text/plain", "CAN communication error");
+        break;
     }
   }
+  else if (cmd.startsWith("stream")) {
+    String str(cmd);
+    int samplesStart = str.indexOf(' ');
+    int namesStart = str.lastIndexOf(' ');
+    int samples = str.substring(samplesStart, namesStart).toInt();
 
-  sendCommand(cmd);
-  do {
-    memset(buffer,0,sizeof(buffer));
-    //len = Inverter.readBytes(buffer, sizeof(buffer) - 1);
-    len = uart_read_bytes(UART_NUM_2, buffer, sizeof(buffer), UART_TIMEOUT);
-    if(len > 0) output.concat(buffer, len);// += buffer;
-
-    if (repeat)
-    {
-      repeat--;
-      //Inverter.print("!");
-      uart_write_bytes(INVERTER_PORT, "!", 1);
-      //Inverter.readBytes(buffer, 1); //consume "!"
-      uart_read_bytes(UART_NUM_2, buffer, 1, UART_TIMEOUT);
-    }
-  } while (len > 0);
-  DBG_OUTPUT_PORT.println(output);
-  server.sendHeader("Access-Control-Allow-Origin","*");
-  server.send(200, "text/json", output);
+    String names = str.substring(namesStart, str.indexOf('\r'));    
+    String result = OICan::StreamValues(names, samples);
+    
+    server.send(200, "text/plain", result);
+  }
+//  server.send(200, "text/json", output);
 }
 
 static uint32_t crc32_word(uint32_t Crc, uint32_t Data)
@@ -694,6 +670,7 @@ static void handleWifi()
   }
 }
 
+
 static void handleBaud()
 {
   if (fastUart)
@@ -769,7 +746,9 @@ void setup(void){
   sta_tick.attach(10, staCheck);
   
   MDNS.begin(host);
-
+  
+  OICan::Init(1);
+    
   updater.setup(&server);
   
   //SERVER INIT
@@ -800,325 +779,7 @@ void setup(void){
   server.on("/fwupdate", handleUpdate);
   server.on("/baud", handleBaud);
   server.on("/version", [](){ server.send(200, "text/plain", "1.1.R"); });
-  server.on("/swd/begin", []() {
-    // See if we can communicate. If so, return information about the target.
-    // This shouldn't reset the target, but it does need to communicate,
-    // and the debug port itself will be reset.
-    //
-    // If all is well, this returns some identifying info about the target.
-
-    uint32_t idcode;
-
-    if (swd.begin() && swd.getIDCODE(idcode)) {
-
-      char output[128];
-      snprintf(output, sizeof output, "{\"connected\": true, \"idcode\": \"0x%02x\" }", idcode);
-      server.send(200, "application/json", String(output));
-
-    } else {
-      server.send(200, "application/json", "{\"connected\": false}");
-    }
-  });
-  server.on("/swd/uid", []() {
-    // STM32F103 Reference Manual, Chapter 30.2 Unique device ID register (96 bits)
-    // http://www.st.com/st-web-ui/static/active/en/resource/technical/document/reference_manual/CD00171190.pdf
-
-    uint32_t REG_U_ID = 0x1FFFF7E8; //96 bits long, read using 3 read operations
-
-    uint16_t off0;
-    uint16_t off2;
-    uint32_t off4;
-    uint32_t off8;
-
-    swd.memLoadHalf(REG_U_ID + 0x0, off0);
-    swd.memLoadHalf(REG_U_ID + 0x2, off2);
-    swd.memLoad(REG_U_ID + 0x4, off4);
-    swd.memLoad(REG_U_ID + 0x8, off8);
-
-    char output[128];
-    snprintf(output, sizeof output, "{\"uid\": \"0x%04x-0x%04x-0x%08x-0x%08x\" }", off0, off2, off4, off8);
-    server.send(200, "application/json", String(output));
-  });
-  server.on("/swd/halt", []() {
-    if (swd.begin()) {
-      char output[128];
-      snprintf(output, sizeof output, "{\"halt\": \"%s\"}", swd.debugHalt() ? "true" : "false");
-      server.send(200, "application/json", String(output));
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/run", []() {
-    if (swd.begin()) {
-      char output[128];
-      snprintf(output, sizeof output, "{\"run\": \"%s\"}", swd.debugRun() ? "true" : "false");
-      server.send(200, "application/json", String(output));
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/reset", []() {
-    if (swd.begin()) {
-      bool debugHalt = swd.debugHalt();
-      bool debugReset = false;
-      if (server.hasArg("hard")) {
-        swd.reset();
-        debugReset = true;
-      } else {
-        debugReset = swd.debugReset();
-      }
-      char output[128];
-      snprintf(output, sizeof output, "{\"halt\": \"%s\", \"reset\": \"%s\"}", debugHalt ? "true" : "false", debugReset ? "true" : "false");
-      server.send(200, "application/json", String(output));
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/zero", []() {
-
-    char output[128];
-
-    if (swd.begin()) {
-
-      uint32_t addrTotal = addrEnd - addr;
-      server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-      server.send(200, "text/plain", "");
-
-      swd.debugHalt();
-      swd.debugHaltOnReset(1);
-      swd.reset();
-      swd.unlockFlash();
-
-      //METHOD #1
-      swd.flashEraseAll();
-
-      //METHOD #2
-      // Before programming internal SRAM, the ARM Cortex-M3 should first be reset and halted.
-      /*
-        1. Write 0xA05F0003 to DHCSR. This will halt the core.
-        2. Write 1 to bit VC_CORERESET in DEMCR. This will enable halt-on-reset
-        3. Write 0xFA050004 to AIRCR. This will reset the core.
-      */
-      //swd.flashloaderSRAM();
-
-      uint32_t addrNext = addr;
-      uint32_t addrIndex = 0;
-      uint32_t addrBuffer = 0x00000000; //Used by METHOD #2
-      do {
-        //Serial.printf("------ %08x -> %08x ------\n", addrNext, addrBuffer);
-
-        snprintf(output, sizeof output, "%08x:", addrNext);
-        server.sendContent(output);
-
-        uint32_t eraseBuffer[4];
-        memset(eraseBuffer, 0xff, sizeof(eraseBuffer));
-
-        for (int i = 0; i < 4; i++)
-        {
-          //METHOD #2
-          //swd.writeBufferSRAM(addrBuffer, eraseBuffer, 1);
-
-          //METHOD #3
-          //swd.flashWrite(addrNext, eraseBuffer[i]);
-
-          snprintf(output, sizeof output, " | %02x %02x %02x %02x", (uint8_t)(eraseBuffer[i] >> 0), (uint8_t)(eraseBuffer[i] >> 8), (uint8_t)(eraseBuffer[i] >> 16), (uint8_t)(eraseBuffer[i] >> 24));
-          server.sendContent(output);
-
-          addrNext += 4;
-          addrBuffer += 4;
-        }
-
-        server.sendContent("\n");
-
-        addrIndex++;
-      } while (addrNext <= addrEnd);
-
-      //METHOD #2
-      //swd.flashloaderRUN(addr, addrBuffer);
-
-      swd.debugHaltOnReset(0);
-      swd.debugReset();
-
-      server.sendContent(""); //end stream
-
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/hex", []() {
-
-    if (swd.begin()) {
-
-      if (server.hasArg("bootloader")) {
-        addr = 0x08000000;
-        addrEnd = 0x08000fff;
-      } else if (server.hasArg("flash")) {
-        addr = 0x08001000;
-        addrEnd = 0x0801ffff;
-        //addrEnd = 0x080011ff; //Quick Debug
-      } else if (server.hasArg("ram")) {
-        addr = 0x20000000;
-        addrEnd = 0x200003ff; //Note: Read is limited to 0x200003ff but you can write to higher portion of RAM
-      }
-      server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-      server.send(200, "text/plain", "");
-
-      uint32_t addrCount = 256;
-      uint32_t addrNext = addr;
-      do {
-
-        //Serial.printf("------ %08x ------\n", addrNext);
-
-        StreamString data;
-        swd.hexDump(addrNext, addrCount, data);
-        server.sendContent(data.readString());
-
-        addrNext += (addrCount * 4); //step = count * 4 bytes in int32 word
-      } while (addrNext <= addrEnd);
-
-      server.sendContent(""); //end stream
-
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/bin", []() {
-
-    if (swd.begin()) {
-
-      String filename = "flash.bin";
-
-      if (server.hasArg("bootloader")) {
-        addr = 0x08000000;
-        addrEnd = 0x08000fff;
-        filename = "bootloader.bin";
-      } else if (server.hasArg("flash")) {
-        addr = 0x08001000;
-        addrEnd = 0x0801ffff;
-      }
-      
-      server.sendHeader("Content-Disposition", "attachment; filename = \"" + filename + "\"");
-      server.setContentLength(addrEnd - addr + 1); //CONTENT_LENGTH_UNKNOWN
-      server.send(200, "application/octet-stream", "");
-
-      uint32_t addrNext = addr;
-      do {
-
-        //Serial.printf("------ %08x ------\n", addrNext);
-
-        //uint8_t* buff;
-        //swd.binDump(addrNext, buff);
-        //server.sendContent(String((char *)buff));
-        
-        uint8_t byte;
-        swd.memLoadByte(addrNext, byte);
-        server.sendContent(String(byte));
-
-        addrNext++;
-      } while (addrNext <= addrEnd);
-
-      server.sendContent(""); //end stream
-
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
-  server.on("/swd/mem/flash", []() {
-
-    char output[128];
-
-    if (swd.begin()) {
-
-      if (server.hasArg("file")) {
-
-        if (server.hasArg("bootloader")) {
-          addr = 0x08000000;
-          addrEnd = 0x08000fff;
-        } else if (server.hasArg("flash")) {
-          addr = 0x08001000;
-          addrEnd = 0x0801ffff;
-        }
-
-        String filename = server.arg("file");
-        File fs = SPIFFS.open("/" + filename, "r");
-        if (fs)
-        {
-          server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-          server.send(200, "text/plain", "");
-
-          swd.debugHalt();
-          swd.debugHaltOnReset(1); //reset lock into halt
-          swd.reset();
-          swd.unlockFlash();
-
-          //pinMode(LED_BUILTIN, OUTPUT);
-
-          uint32_t addrNext = addr;
-          uint32_t addrIndex = addr;
-          uint32_t addrBuffer = 0x00000000;
-
-          while (addrNext < addrEnd && fs.available())
-          {
-            swd.debugHalt();
-            if (addrBuffer == 0x00000000)
-            {
-              swd.flashloaderSRAM(); //load flashloader to SRAM @ 0x20000000
-            }
-
-            //digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-            
-            uint8_t PAGE_SIZE = 6; //webserver max chunks
-            for (uint8_t p = 0; p < PAGE_SIZE; p++)
-            {
-              //Serial.printf("------ %08x ------\n", addrIndex);
-              if (fs.available() == 0)
-                break;
-
-              snprintf(output, sizeof output, "%08x:", addrIndex);
-              server.sendContent(output);
-
-              for (int i = 0; i < 4; i++)
-              {
-                if (fs.available() == 0)
-                  break;
-
-                char sramBuffer[4];
-                fs.readBytes(sramBuffer, 4);
-                swd.writeBufferSRAM(addrBuffer, (uint8_t*)sramBuffer, sizeof(sramBuffer)); //append to SRAM after flashloader
-
-                snprintf(output, sizeof output, " | %02x %02x %02x %02x", sramBuffer[0], sramBuffer[1], sramBuffer[2], sramBuffer[3]);
-                server.sendContent(output);
-
-                addrIndex += 4;
-                addrBuffer += 4;
-              }
-              server.sendContent("\n");
-            }
-            swd.flashloaderRUN(addrNext, addrBuffer);
-            delay(400); //Must wait for flashloader to finish
- 
-            addrBuffer = 0x00000000;
-            addrNext = addrIndex;
-          }
-
-          swd.debugHaltOnReset(0); //no reset halt lock
-          swd.reset(); //hard-reset
-
-          fs.close();
-          SPIFFS.remove("/" + filename);
-
-          server.sendContent(""); //end stream
-          //digitalWrite(LED_BUILTIN, HIGH); //OFF
-        } else {
-          server.send(200, "text/plain", "File Error");
-        }
-      } else {
-        server.send(200, "text/plain", ".bin File Required");
-      }
-    } else {
-      server.send(200, "text/plain", "SWD Error");
-    }
-  });
+  
   //called when the url is not defined here
   //use it to load content from SPIFFS
   server.onNotFound([](){
@@ -1194,11 +855,14 @@ void binaryLoggingStop()
   uart_flush(INVERTER_PORT);
 }
 
- 
 void loop(void){
+  static int subIndex = 0;
+  static uint32_t serial[4];
   // note: ArduinoOTA.handle() calls MDNS.update();
   server.handleClient();
   ArduinoOTA.handle();
+  
+  OICan::Loop();
 
   if((WiFi.softAPgetStationNum() > 0) || (WiFi.status() == WL_CONNECTED))
   { //have connections so stop logging
