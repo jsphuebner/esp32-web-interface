@@ -26,8 +26,35 @@
 #include "oi_can.h"
 
 #define DBG_OUTPUT_PORT Serial
+#define SDO_REQUEST_DOWNLOAD  (1 << 5)
+#define SDO_REQUEST_UPLOAD    (2 << 5)
+#define SDO_REQUEST_SEGMENT   (3 << 5)
+#define SDO_TOGGLE_BIT        (1 << 4)
+#define SDO_RESPONSE_UPLOAD   (2 << 5)
+#define SDO_RESPONSE_DOWNLOAD (3 << 5)
+#define SDO_EXPEDITED         (1 << 1)
+#define SDO_SIZE_SPECIFIED    (1)
+#define SDO_WRITE             (SDO_REQUEST_DOWNLOAD | SDO_EXPEDITED | SDO_SIZE_SPECIFIED)
+#define SDO_READ              SDO_REQUEST_UPLOAD
+#define SDO_ABORT             0x80
+#define SDO_WRITE_REPLY       SDO_RESPONSE_DOWNLOAD
+#define SDO_READ_REPLY        (SDO_RESPONSE_UPLOAD | SDO_EXPEDITED | SDO_SIZE_SPECIFIED)
+#define SDO_ERR_INVIDX        0x06020000
+#define SDO_ERR_RANGE         0x06090030
+#define SDO_ERR_GENERAL       0x08000000
 
-//CAN_device_t CAN_cfg; //this must be in top level namespace
+#define SDO_INDEX_PARAMS      0x2000
+#define SDO_INDEX_PARAM_UID   0x2100
+#define SDO_INDEX_MAP_START   0x3000
+#define SDO_INDEX_MAP_END     0x4800
+#define SDO_INDEX_MAP_RX      0x4000
+#define SDO_INDEX_SERIAL      0x5000
+#define SDO_INDEX_STRINGS     0x5001
+#define SDO_INDEX_COMMANDS    0x5002
+#define SDO_CMD_SAVE          0
+#define SDO_CMD_LOAD          1
+#define SDO_CMD_RESET         2
+
 
 namespace OICan {
 
@@ -46,7 +73,7 @@ static void requestSdoElement(uint16_t index, uint8_t subIndex) {
   tx_frame.extd = false;
   tx_frame.identifier = 0x600 | _nodeId;
   tx_frame.data_length_code = 8;
-  tx_frame.data[0] = 0x40;
+  tx_frame.data[0] = SDO_READ;
   tx_frame.data[1] = index & 0xFF;
   tx_frame.data[2] = index >> 8;
   tx_frame.data[3] = subIndex;
@@ -62,7 +89,7 @@ static void setValueSdo(uint16_t index, uint8_t subIndex, double value) {
   tx_frame.extd = false;
   tx_frame.identifier = 0x600 | _nodeId;
   tx_frame.data_length_code = 8;
-  tx_frame.data[0] = 0x23;
+  tx_frame.data[0] = SDO_WRITE;
   tx_frame.data[1] = index & 0xFF;
   tx_frame.data[2] = index >> 8;
   tx_frame.data[3] = subIndex;
@@ -87,7 +114,7 @@ static void requestNextSegment(bool toggleBit) {
   tx_frame.extd = false;
   tx_frame.identifier = 0x600 | _nodeId;
   tx_frame.data_length_code = 8;
-  tx_frame.data[0] = 0x60 | toggleBit << 4;
+  tx_frame.data[0] = SDO_REQUEST_SEGMENT | toggleBit << 4;
   tx_frame.data[1] = 0;
   tx_frame.data[2] = 0;
   tx_frame.data[3] = 0;
@@ -103,7 +130,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
   static bool toggleBit = false;
   static File file;
   
-  if (rxframe->data[0] == 0x80) { //SDO abort
+  if (rxframe->data[0] == SDO_ABORT) { //SDO abort
     state = ERROR;
     DBG_OUTPUT_PORT.println("Error obtaining serial number, try restarting");
     return;
@@ -113,17 +140,17 @@ static void handleSdoResponse(twai_message_t *rxframe) {
     case OBTAINSERIAL1:
       serial[0] = *(uint32_t*)&rxframe->data[4];
       state = OBTAINSERIAL2;
-      requestSdoElement(0x5000, 1);
+      requestSdoElement(SDO_INDEX_SERIAL, 1);
       break;
     case OBTAINSERIAL2:
       serial[1] = *(uint32_t*)&rxframe->data[4];
       state = OBTAINSERIAL3;
-      requestSdoElement(0x5000, 2);
+      requestSdoElement(SDO_INDEX_SERIAL, 2);
       break;
     case OBTAINSERIAL3:
       serial[2] = *(uint32_t*)&rxframe->data[4];
       state = OBTAINSERIAL4;
-      requestSdoElement(0x5000, 3);
+      requestSdoElement(SDO_INDEX_SERIAL, 3);
       break;
     case OBTAINSERIAL4:
       serial[3] = *(uint32_t*)&rxframe->data[4];
@@ -138,23 +165,26 @@ static void handleSdoResponse(twai_message_t *rxframe) {
         state = OBTAIN_JSON;
         DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
         file = SPIFFS.open(jsonFileName, "w+");
-        requestSdoElement(0x5001, 0);
+        requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
       }
       break;
     case OBTAIN_JSON:
-      if ((rxframe->data[0] & 1) && (rxframe->data[0] & 0x40) == 0) {
+      //Receiving last segment
+      if ((rxframe->data[0] & 1) && (rxframe->data[0] & SDO_READ) == 0) {
         int size = 7 - ((rxframe->data[0] >> 1) & 0x7);
         file.write(&rxframe->data[1], size);
         file.close();
         DBG_OUTPUT_PORT.println("Download complete");
         state = IDLE;
       }
-      else if (rxframe->data[0] == (toggleBit << 4) && (rxframe->data[0] & 0x40) == 0) {
+      //Receiving a segment
+      else if (rxframe->data[0] == (toggleBit << 4) && (rxframe->data[0] & SDO_READ) == 0) {
         file.write(&rxframe->data[1], 7);
         toggleBit = !toggleBit;
         requestNextSegment(toggleBit);
       }
-      else if ((rxframe->data[0] & 0x40) == 0x40) {
+      //Request first segment
+      else if ((rxframe->data[0] & SDO_READ) == SDO_READ) {
         requestNextSegment(toggleBit);
       }
 
@@ -177,10 +207,12 @@ void SendJson(WiFiClient client) {
   for (JsonPair kv : root) {
     int id = kv.value()["id"].as<int>();
     
-    requestSdoElement(0x2100 | (id >> 8), id & 0xff);
+    if (id > 0) {
+      requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xff);
     
-    if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
-      kv.value()["value"] = ((double)*(int32_t*)&rxframe.data[4]) / 32;
+      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+        kv.value()["value"] = ((double)*(int32_t*)&rxframe.data[4]) / 32;
+      }
     }
   }
   WriteBufferingStream bufferedWifiClient{client, 1000};
@@ -194,12 +226,12 @@ SetResult SetValue(String name, double value) {
   
   int id = getId(name);
 
-  setValueSdo(0x2100 | (id >> 8), id & 0xFF, value);
+  setValueSdo(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF, value);
 
   if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
-    if (rxframe.data[0] == (3 << 5))
+    if (rxframe.data[0] == SDO_RESPONSE_DOWNLOAD)
       return Ok;
-    else if (*(uint32_t*)&rxframe.data[4] == 0x06090030)
+    else if (*(uint32_t*)&rxframe.data[4] == SDO_ERR_RANGE)
       return ValueOutOfRange;
     else
       return UnknownIndex;
@@ -225,7 +257,7 @@ String StreamValues(String names, int samples) {
   for (int i = 0; i < samples; i++) {
     for (int item = 0; item < numItems; item++) {
       int id = ids[item];
-      requestSdoElement(0x2100 | (id >> 8), id & 0xFF);
+      requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF);
     }
     
     int item = 0;
@@ -255,7 +287,7 @@ double GetValue(String name) {
   
   int id = getId(name);
 
-  requestSdoElement(0x2100 | (id >> 8), id & 0xFF);
+  requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF);
 
   if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
     if (rxframe.data[0] == 0x80)
@@ -306,7 +338,7 @@ void Init(uint8_t nodeId) {
 
   _nodeId = nodeId;
   state = OBTAINSERIAL1;
-  requestSdoElement(0x5000, 0);
+  requestSdoElement(SDO_INDEX_SERIAL, 0);
   DBG_OUTPUT_PORT.println("Initialized CAN");
 }
 
