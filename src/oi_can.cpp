@@ -58,10 +58,7 @@
 
 namespace OICan {
 
-enum state { 
-    IDLE, ERROR, OBTAINSERIAL1, OBTAINSERIAL2, OBTAINSERIAL3, OBTAINSERIAL4,
-    OBTAIN_INT,
-    OBTAIN_JSON };
+enum state { IDLE, ERROR, OBTAINSERIAL, OBTAIN_JSON };
 
 static uint8_t _nodeId;
 static state state;
@@ -137,35 +134,28 @@ static void handleSdoResponse(twai_message_t *rxframe) {
   }
   
   switch (state) {
-    case OBTAINSERIAL1:
-      serial[0] = *(uint32_t*)&rxframe->data[4];
-      state = OBTAINSERIAL2;
-      requestSdoElement(SDO_INDEX_SERIAL, 1);
-      break;
-    case OBTAINSERIAL2:
-      serial[1] = *(uint32_t*)&rxframe->data[4];
-      state = OBTAINSERIAL3;
-      requestSdoElement(SDO_INDEX_SERIAL, 2);
-      break;
-    case OBTAINSERIAL3:
-      serial[2] = *(uint32_t*)&rxframe->data[4];
-      state = OBTAINSERIAL4;
-      requestSdoElement(SDO_INDEX_SERIAL, 3);
-      break;
-    case OBTAINSERIAL4:
-      serial[3] = *(uint32_t*)&rxframe->data[4];
-      sprintf(jsonFileName, "/%x.json", serial[3]);
-      DBG_OUTPUT_PORT.printf("Got Serial Number %X:%X:%X:%X\r\n", serial[0], serial[1], serial[2], serial[3]);
-      
-      if (SPIFFS.exists(jsonFileName)) {
-        state = IDLE;
-        DBG_OUTPUT_PORT.println("json file already downloaded");
-      }
-      else {
-        state = OBTAIN_JSON;
-        DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
-        file = SPIFFS.open(jsonFileName, "w+");
-        requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
+    case OBTAINSERIAL:
+      if ((rxframe->data[1] | rxframe->data[2] << 8) == SDO_INDEX_SERIAL && rxframe->data[3] < 4) {
+        serial[rxframe->data[3]] = *(uint32_t*)&rxframe->data[4];
+        
+        if (rxframe->data[3] < 3) {
+          requestSdoElement(SDO_INDEX_SERIAL, rxframe->data[3] + 1);
+        }
+        else {
+          sprintf(jsonFileName, "/%x.json", serial[3]);
+          DBG_OUTPUT_PORT.printf("Got Serial Number %X:%X:%X:%X\r\n", serial[0], serial[1], serial[2], serial[3]);
+          
+          if (SPIFFS.exists(jsonFileName)) {
+            state = IDLE;
+            DBG_OUTPUT_PORT.println("json file already downloaded");
+          }
+          else {
+            state = OBTAIN_JSON;
+            DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
+            file = SPIFFS.open(jsonFileName, "w+");
+            requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
+          }
+        }
       }
       break;
     case OBTAIN_JSON:
@@ -337,7 +327,7 @@ void Init(uint8_t nodeId) {
   }
 
   _nodeId = nodeId;
-  state = OBTAINSERIAL1;
+  state = OBTAINSERIAL;
   requestSdoElement(SDO_INDEX_SERIAL, 0);
   DBG_OUTPUT_PORT.println("Initialized CAN");
 }
