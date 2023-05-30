@@ -59,12 +59,18 @@
 namespace OICan {
 
 enum state { IDLE, ERROR, OBTAINSERIAL, OBTAIN_JSON };
+enum updstate { UPD_IDLE, SEND_MAGIC, SEND_SIZE, SEND_PAGE, CHECK_CRC, REQUEST_JSON };
 
 static uint8_t _nodeId;
 static state state;
+static updstate updstate;
 static uint32_t serial[4]; //contains id sum as well
 static char jsonFileName[20];
 static twai_message_t tx_frame;
+static File updateFile;
+static int currentPage = 0;
+static const size_t PAGE_SIZE_BYTES = 1024;
+static int retries = 0;
 
 static void requestSdoElement(uint16_t index, uint8_t subIndex) {
   tx_frame.extd = false;
@@ -180,6 +186,136 @@ static void handleSdoResponse(twai_message_t *rxframe) {
 
       break;
   }
+}
+
+static uint32_t crc32_word(uint32_t Crc, uint32_t Data)
+{
+  int i;
+
+  Crc = Crc ^ Data;
+
+  for(i=0; i<32; i++)
+    if (Crc & 0x80000000)
+      Crc = (Crc << 1) ^ 0x04C11DB7; // Polynomial used in STM32
+    else
+      Crc = (Crc << 1);
+
+  return(Crc);
+}
+
+static void handleUpdate(twai_message_t *rxframe) {
+  static int currentByte = 0;
+  static uint32_t crc;
+        
+  switch (updstate) {
+    case SEND_MAGIC:
+      if (rxframe->data[0] == 0x33) {
+        tx_frame.identifier = 0x7dd;
+        tx_frame.data_length_code = 4;
+
+        //For now just reflect ID
+        tx_frame.data[0] = rxframe->data[4];
+        tx_frame.data[1] = rxframe->data[5];
+        tx_frame.data[2] = rxframe->data[6];
+        tx_frame.data[3] = rxframe->data[7];
+        updstate = SEND_SIZE;
+        DBG_OUTPUT_PORT.printf("Sending ID %u\r\n", *(uint32_t*)tx_frame.data);
+        twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
+      }
+      break;
+    case SEND_SIZE:
+      if (rxframe->data[0] == 'S') {
+        tx_frame.identifier = 0x7dd;
+        tx_frame.data_length_code = 1;
+
+        tx_frame.data[0] = (updateFile.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
+        updstate = SEND_PAGE;
+        crc = 0xFFFFFFFF;
+        DBG_OUTPUT_PORT.printf("Sending size %u\r\n", tx_frame.data[0]);
+        twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
+      }
+      break;
+    case SEND_PAGE:
+      if (rxframe->data[0] == 'P') {
+        char buffer[8];
+        size_t bytesRead = 0;
+        
+        if (currentByte < updateFile.size()) {
+          updateFile.seek(currentByte);
+          bytesRead = updateFile.readBytes(buffer, sizeof(buffer));
+        }
+
+        while (bytesRead < 8)
+          buffer[bytesRead++] = 0xff;
+          
+        currentByte += bytesRead;
+        crc = crc32_word(crc, *(uint32_t*)&buffer[0]);
+        crc = crc32_word(crc, *(uint32_t*)&buffer[4]);      
+      
+        tx_frame.identifier = 0x7dd;
+        tx_frame.data_length_code = 8;
+        tx_frame.data[0] = buffer[0];
+        tx_frame.data[1] = buffer[1];
+        tx_frame.data[2] = buffer[2];
+        tx_frame.data[3] = buffer[3];
+        tx_frame.data[4] = buffer[4];
+        tx_frame.data[5] = buffer[5];
+        tx_frame.data[6] = buffer[6];
+        tx_frame.data[7] = buffer[7];
+        
+        updstate = SEND_PAGE;
+        twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
+      }
+      else if (rxframe->data[0] == 'C') {
+        tx_frame.identifier = 0x7dd;
+        tx_frame.data_length_code = 4;
+        tx_frame.data[0] = crc & 0xFF;
+        tx_frame.data[1] = (crc >> 8) & 0xFF;
+        tx_frame.data[2] = (crc >> 16) & 0xFF;
+        tx_frame.data[3] = (crc >> 24) & 0xFF;
+
+        updstate = CHECK_CRC;
+        twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
+      }
+      break;
+    case CHECK_CRC:
+      crc = 0xFFFFFFFF;
+      DBG_OUTPUT_PORT.printf("Sent bytes %u-%u... ", currentPage * PAGE_SIZE_BYTES, currentByte);
+      if (rxframe->data[0] == 'P') {
+        updstate = SEND_PAGE;
+        currentPage++;
+        DBG_OUTPUT_PORT.printf("CRC Good\r\n");
+        handleUpdate(rxframe);
+      }
+      else if (rxframe->data[0] == 'E') {
+        updstate = SEND_PAGE;
+        currentByte = currentPage * PAGE_SIZE_BYTES;
+        DBG_OUTPUT_PORT.printf("CRC Error\r\n");
+        handleUpdate(rxframe);
+      }
+      else if (rxframe->data[0] == 'D') {
+        updstate = REQUEST_JSON;
+        state = OBTAINSERIAL;
+        retries = 50;
+        updateFile.close();
+        DBG_OUTPUT_PORT.printf("Done!\r\n");
+      }
+      break;
+  }
+  
+}
+
+int StartUpdate(String fileName) {
+  updateFile = SPIFFS.open(fileName, "r");
+  //Reset host processor
+  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_RESET, 1);
+  updstate = SEND_MAGIC;
+  
+  return (updateFile.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
+}
+
+int GetCurrentUpdatePage() {
+  return currentPage;
 }
 
 void SendJson(WiFiClient client) {
@@ -306,10 +442,9 @@ void Init(uint8_t nodeId) {
   uint16_t id = 0x580 + nodeId;
     
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-  twai_filter_config_t f_config = {.acceptance_code = (uint32_t)(id << 5),
-                                   .acceptance_mask = 0x0000001F,
+  twai_filter_config_t f_config = {.acceptance_code = (uint32_t)(id << 5) | (uint32_t)(0x7de << 21),
+                                   .acceptance_mask = 0x001F001F,
                                    .single_filter = false};
-
 
   if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
      printf("Driver installed\n");
@@ -318,7 +453,7 @@ void Init(uint8_t nodeId) {
      return;
   }
 
-    // Start TWAI driver
+  // Start TWAI driver
   if (twai_start() == ESP_OK) {
     printf("Driver started\n");
   } else {
@@ -333,14 +468,33 @@ void Init(uint8_t nodeId) {
 }
 
 void Loop() {
+  bool recvdResponse = false;
   twai_message_t rxframe;
   
   if (twai_receive(&rxframe, 0) == ESP_OK) {
-    if (rxframe.identifier == (0x580 | _nodeId))
+    if (rxframe.identifier == (0x580 | _nodeId)) {
       handleSdoResponse(&rxframe);
+      recvdResponse = true;
+    }
+    else if (rxframe.identifier == 0x7de)
+      handleUpdate(&rxframe);
     else
       DBG_OUTPUT_PORT.printf("Received unwanted frame %u\r\n", rxframe.identifier);
   }
+  
+  if (updstate == REQUEST_JSON) {
+    //Re-download JSON if necessary
+    
+    retries--;
+    
+    if (recvdResponse || retries < 0) 
+      updstate = UPD_IDLE; //if request was successful
+    else
+      requestSdoElement(SDO_INDEX_SERIAL, 0);
+      
+     delay(100);
+  }
+
 }
 
 }

@@ -508,134 +508,22 @@ static void handleCommand() {
 //  server.send(200, "text/json", output);
 }
 
-static uint32_t crc32_word(uint32_t Crc, uint32_t Data)
-{
-  int i;
-
-  Crc = Crc ^ Data;
-
-  for(i=0; i<32; i++)
-    if (Crc & 0x80000000)
-      Crc = (Crc << 1) ^ 0x04C11DB7; // Polynomial used in STM32
-    else
-      Crc = (Crc << 1);
-
-  return(Crc);
-}
-
-static uint32_t crc32(uint32_t* data, uint32_t len, uint32_t crc)
-{
-   for (uint32_t i = 0; i < len; i++)
-      crc = crc32_word(crc, data[i]);
-   return crc;
-}
-
-
 static void handleUpdate()
 {
+  static int pages = 0;
   if(!server.hasArg("step") || !server.hasArg("file")) {server.send(500, "text/plain", "BAD ARGS"); return;}
-  size_t PAGE_SIZE_BYTES = 1024;
   int step = server.arg("step").toInt();
-  File file = SPIFFS.open(server.arg("file"), "r");
-  int pages = (file.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
   String message;
-
-  if (server.hasArg("pagesize"))
-  {
-    PAGE_SIZE_BYTES = server.arg("pagesize").toInt();
+  
+  if (step < 0)
+    pages = OICan::StartUpdate(server.arg("file"));
+  else {
+    while (OICan::GetCurrentUpdatePage() < step) {
+      OICan::Loop();
+    }
   }
-
-  if (step == -1)
-  {
-    //int c;
-    char c;
-    sendCommand("reset");
-
-    if (fastUart)
-    {
-      //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
-      //Inverter.updateBaudRate(115200);
-      uart_set_baudrate(INVERTER_PORT, 115200);
-      fastUart = false;
-      fastUartAvailable = true; //retry after reboot
-    }
-    do {
-      //c = Inverter.read();
-      uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
-    } while (c != 'S' && c != '2');
-
-    if (c == '2') //version 2 bootloader
-    {
-      //Inverter.write(0xAA); //Send magic
-      c = 0xAA;
-      uart_write_bytes(INVERTER_PORT, &c, 1);
-      //while (Inverter.read() != 'P');
-      do {
-        uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
-      } while (c != 'S');
-    }
     
-    //Inverter.write(pages);
-    snprintf(uartMessBuff, UART_MESSBUF_SIZE, "%d", pages);
-    uart_write_bytes(INVERTER_PORT, uartMessBuff, strnlen(uartMessBuff, UART_MESSBUF_SIZE));
-    //while (Inverter.read() != 'P');
-    do {
-      uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
-    } while (c != 'P');
-    message = "reset";
-  }
-  else
-  {
-    bool repeat = true;
-    file.seek(step * PAGE_SIZE_BYTES);
-    char buffer[PAGE_SIZE_BYTES];
-    size_t bytesRead = file.readBytes(buffer, sizeof(buffer));
-
-    while (bytesRead < PAGE_SIZE_BYTES)
-      buffer[bytesRead++] = 0xff;
-    
-    uint32_t crc = crc32((uint32_t*)buffer, PAGE_SIZE_BYTES / 4, 0xffffffff);
-
-    while (repeat)
-    {
-      //Inverter.write(buffer, sizeof(buffer));
-      uart_write_bytes(INVERTER_PORT, buffer, sizeof(buffer));
-      //while (!Inverter.available());
-      char res;// = Inverter.read();
-      while(uart_read_bytes(INVERTER_PORT, &res, 1, UART_TIMEOUT)<=0);
-
-      if ('C' == res) {
-        //Inverter.write((char*)&crc, sizeof(uint32_t));
-        uart_write_bytes(INVERTER_PORT, (char*)&crc, sizeof(uint32_t));
-        //while (!Inverter.available());
-        //res = Inverter.read();
-        while(uart_read_bytes(INVERTER_PORT, &res, 1, UART_TIMEOUT)<=0);
-      }
-
-      switch (res) {
-        case 'D':
-          message = "Update Done";
-          repeat = false;
-          fastUartAvailable = true;
-          break;
-        case 'E':
-          //while (Inverter.read() != 'T');
-          do {
-            uart_read_bytes(INVERTER_PORT, uartMessBuff, 1, UART_TIMEOUT);
-          } while (uartMessBuff[0] != 'T');
-          break;
-        case 'P':
-          message = "Page write success";
-          repeat = false;
-          break;
-        default:
-        case 'T':
-          break;
-      }
-    }
-  }
   server.send(200, "text/json", "{ \"message\": \"" + message + "\", \"pages\": " + pages + " }");
-  file.close();
 }
 
 static void handleWifi()
