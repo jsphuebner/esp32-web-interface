@@ -30,6 +30,7 @@ void Loop();
 void SendJson(WiFiClient c);
 SetResult SetValue(String name, double value);
 double GetValue(String name);
+bool SaveToFlash();
 String StreamValues(String names, int samples);
 int StartUpdate(String fileName);
 int GetCurrentUpdatePage();

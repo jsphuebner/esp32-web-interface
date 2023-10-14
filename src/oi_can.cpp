@@ -166,7 +166,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
       break;
     case OBTAIN_JSON:
       //Receiving last segment
-      if ((rxframe->data[0] & 1) && (rxframe->data[0] & SDO_READ) == 0) {
+      if ((rxframe->data[0] & SDO_SIZE_SPECIFIED) && (rxframe->data[0] & SDO_READ) == 0) {
         int size = 7 - ((rxframe->data[0] >> 1) & 0x7);
         file.write(&rxframe->data[1], size);
         file.close();
@@ -367,6 +367,21 @@ SetResult SetValue(String name, double value) {
   }
 }
 
+bool SaveToFlash() {
+  if (state != IDLE) return false;
+  
+  twai_message_t rxframe;
+  
+  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_SAVE, 0);
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(200)) == ESP_OK) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
 String StreamValues(String names, int samples) {
   if (state != IDLE) return "";
   
@@ -395,7 +410,7 @@ String StreamValues(String names, int samples) {
         int receivedItem = (rxframe.data[1] << 8) + rxframe.data[3];
         
         if (receivedItem == ids[item])
-          result += String(((double)*(uint32_t*)&rxframe.data[4]) / 32, 2);
+          result += String(((double)*(int32_t*)&rxframe.data[4]) / 32, 2);
         else
           result += "0";
       }
@@ -440,6 +455,9 @@ void Init(uint8_t nodeId) {
   };
 
   uint16_t id = 0x580 + nodeId;
+  
+  twai_stop();
+  twai_driver_uninstall();
     
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t f_config = {.acceptance_code = (uint32_t)(id << 5) | (uint32_t)(0x7de << 21),

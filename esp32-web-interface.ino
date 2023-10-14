@@ -505,6 +505,14 @@ static void handleCommand() {
     
     server.send(200, "text/plain", result);
   }
+  else if (cmd == "save") {
+    if (OICan::SaveToFlash()) {
+      server.send(200, "text/plain", "Parameters and CAN map saved");
+    }
+    else {
+      server.send(200, "text/plain", "No reply to save command");
+    }
+  }
 //  server.send(200, "text/json", output);
 }
 
@@ -524,6 +532,19 @@ static void handleUpdate()
   }
     
   server.send(200, "text/json", "{ \"message\": \"" + message + "\", \"pages\": " + pages + " }");
+}
+
+static void handleNodeId()
+{
+  String msg = "No id given";
+  
+  if(server.hasArg("id")) {
+    int id = server.arg("id").toInt();
+    OICan::Init(id);
+    msg = "Id is now " + id;
+  }
+  
+  server.send(200, "text/plain", msg);
 }
 
 static void handleWifi()
@@ -667,6 +688,7 @@ void setup(void){
   server.on("/fwupdate", handleUpdate);
   server.on("/baud", handleBaud);
   server.on("/version", [](){ server.send(200, "text/plain", "1.1.R"); });
+  server.on("/nodeid", handleNodeId);
   
   //called when the url is not defined here
   //use it to load content from SPIFFS
