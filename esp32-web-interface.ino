@@ -536,15 +536,12 @@ static void handleUpdate()
 
 static void handleNodeId()
 {
-  String msg = "No id given";
-  
   if(server.hasArg("id")) {
     int id = server.arg("id").toInt();
     OICan::Init(id);
-    msg = "Id is now " + id;
   }
   
-  server.send(200, "text/plain", msg);
+  server.send(200, "text/plain", String(OICan::GetNodeId()));
 }
 
 static void handleWifi()

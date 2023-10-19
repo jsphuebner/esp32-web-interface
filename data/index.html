@@ -50,6 +50,7 @@
 <p><button onclick="sendCmd('errors');">Display Error Memory</button></p>
 <p><button onclick="sendCmd('can clear');">Reset CAN Mapping</button></p>
 <p><input type="text" id="customcmd"/> <button onclick="sendCmd(document.getElementById('customcmd').value);">Send Custom Command</button></p>
+<p>CAN Node: <input type="number" id="nodeid" step="1" min="1" max="63" value="1" onchange="setNodeId(this.value)"/></p>
 <p><a href="/wifi">Wifi Settings</a>
 <p><a href="/remote.html">Start Remote Support Session</a>
 

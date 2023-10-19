@@ -34,6 +34,7 @@ bool SaveToFlash();
 String StreamValues(String names, int samples);
 int StartUpdate(String fileName);
 int GetCurrentUpdatePage();
+int GetNodeId();
 
 }
 #endif

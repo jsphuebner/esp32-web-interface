@@ -29,6 +29,33 @@ function onLoad()
 	updateTables();
 	generateChart();
 	checkSubscribedParameterSet();
+	getNodeId();
+}
+
+function getNodeId() 
+{
+	var xmlhttp = new XMLHttpRequest();
+
+	xmlhttp.onload = function() 
+	{
+    	document.getElementById("nodeid").value = this.responseText;
+	}
+
+	xmlhttp.open("GET", "/nodeid", true);
+	xmlhttp.send();
+}
+
+function setNodeId(id) 
+{
+	var xmlhttp = new XMLHttpRequest();
+
+	xmlhttp.onload = function() 
+	{
+    	document.getElementById("nodeid").value = this.responseText;
+	}
+
+	xmlhttp.open("GET", "/nodeid?id=" + id, true);
+	xmlhttp.send();
 }
 
 /** @brief generates chart at bottom of page */

@@ -441,6 +441,10 @@ double GetValue(String name) {
   }
 }
 
+int GetNodeId() {
+  return _nodeId;
+}
+
 void Init(uint8_t nodeId) {
   twai_general_config_t g_config = {
         .mode = TWAI_MODE_NORMAL,
