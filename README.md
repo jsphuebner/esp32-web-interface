@@ -79,7 +79,7 @@ Pin#  | ESP32 Board Function | USB / Serial adapter
 
 Then you would use any of the the [development tool below](#development) ; or the `esptool.py` tool to upload either a binary firmware file, or a binary filesystem file.
 
-Various openinverter boards (SDU, LDU, Leaf) use a different wiring scheme for initial programming
+Various openinverter boards (SDU, LDU, Leaf) use a different wiring scheme for initial programming. It is important to flash the ESP32 chip BEFORE flashing the STM32 chip because otherwise you will get a bus collision on the UART pins. If you've already flashed the STM32 either erase the flash or hold it in reset somehow while flashing the ESP32.
 
 Pin#  | ESP32 Board Function | USB / Serial adapter
 ----- | ---------------------- | --------------------
