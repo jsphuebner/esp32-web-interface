@@ -79,6 +79,19 @@ Pin#  | ESP32 Board Function | USB / Serial adapter
 
 Then you would use any of the the [development tool below](#development) ; or the `esptool.py` tool to upload either a binary firmware file, or a binary filesystem file.
 
+Various openinverter boards (SDU, LDU, Leaf) use a different wiring scheme for initial programming
+
+Pin#  | ESP32 Board Function | USB / Serial adapter
+----- | ---------------------- | --------------------
+1     | TXD output             | RXD input
+2     | RXD input              | TXD output
+3     | +5v input              | (Some adapters provide a +5v output, you can use it)
+4     | GND                    | GND
+5     | GND                    | GND
+6     | GPIO0                  | Connect this to pin 5 (GND) to put the ESP32 into programming mode. Then power up
+
+Flash subsequent updates via OTA.
+
 # Documentations
 * [Openinverter Web Interface Protocol](PROTOCOL.md)
 
