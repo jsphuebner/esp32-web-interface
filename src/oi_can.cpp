@@ -20,7 +20,7 @@
 #include "driver/gpio.h"
 #include "driver/twai.h"
 #include <FS.h>
-#include <SPIFFS.h> 
+#include <SPIFFS.h>
 #include <StreamUtils.h>
 #include <ArduinoJson.h>
 #include "oi_can.h"
@@ -45,9 +45,9 @@
 
 #define SDO_INDEX_PARAMS      0x2000
 #define SDO_INDEX_PARAM_UID   0x2100
-#define SDO_INDEX_MAP_START   0x3000
-#define SDO_INDEX_MAP_END     0x4800
-#define SDO_INDEX_MAP_RX      0x4000
+#define SDO_INDEX_MAP_TX      0x3000
+#define SDO_INDEX_MAP_RX      0x3001
+#define SDO_INDEX_MAP_RD      0x3100
 #define SDO_INDEX_SERIAL      0x5000
 #define SDO_INDEX_STRINGS     0x5001
 #define SDO_INDEX_COMMANDS    0x5002
@@ -66,6 +66,7 @@ static state state;
 static updstate updstate;
 static uint32_t serial[4]; //contains id sum as well
 static char jsonFileName[20];
+static char canFileName[20];
 static twai_message_t tx_frame;
 static File updateFile;
 static int currentPage = 0;
@@ -88,7 +89,7 @@ static void requestSdoElement(uint16_t index, uint8_t subIndex) {
   twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
 }
 
-static void setValueSdo(uint16_t index, uint8_t subIndex, double value) {
+static void setValueSdo(uint16_t index, uint8_t subIndex, uint32_t value) {
   tx_frame.extd = false;
   tx_frame.identifier = 0x600 | _nodeId;
   tx_frame.data_length_code = 8;
@@ -96,15 +97,19 @@ static void setValueSdo(uint16_t index, uint8_t subIndex, double value) {
   tx_frame.data[1] = index & 0xFF;
   tx_frame.data[2] = index >> 8;
   tx_frame.data[3] = subIndex;
-  *(int32_t*)&tx_frame.data[4] = value * 32;
+  *(uint32_t*)&tx_frame.data[4] = value;
 
   twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
+}
+
+static void setValueSdo(uint16_t index, uint8_t subIndex, double value) {
+  setValueSdo(index, subIndex, value * 32);
 }
 
 static int getId(String name) {
   DynamicJsonDocument doc(300);
   StaticJsonDocument<200> filter;
-  
+
   File file = SPIFFS.open(jsonFileName, "r");
   filter[name]["id"] = true;
   deserializeJson(doc, file, DeserializationOption::Filter(filter));
@@ -125,32 +130,32 @@ static void requestNextSegment(bool toggleBit) {
   tx_frame.data[5] = 0;
   tx_frame.data[6] = 0;
   tx_frame.data[7] = 0;
-  
+
   twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
 }
 
 static void handleSdoResponse(twai_message_t *rxframe) {
   static bool toggleBit = false;
   static File file;
-  
+
   if (rxframe->data[0] == SDO_ABORT) { //SDO abort
     state = ERROR;
     DBG_OUTPUT_PORT.println("Error obtaining serial number, try restarting");
     return;
   }
-  
+
   switch (state) {
     case OBTAINSERIAL:
       if ((rxframe->data[1] | rxframe->data[2] << 8) == SDO_INDEX_SERIAL && rxframe->data[3] < 4) {
         serial[rxframe->data[3]] = *(uint32_t*)&rxframe->data[4];
-        
+
         if (rxframe->data[3] < 3) {
           requestSdoElement(SDO_INDEX_SERIAL, rxframe->data[3] + 1);
         }
         else {
           sprintf(jsonFileName, "/%x.json", serial[3]);
           DBG_OUTPUT_PORT.printf("Got Serial Number %X:%X:%X:%X\r\n", serial[0], serial[1], serial[2], serial[3]);
-          
+
           if (SPIFFS.exists(jsonFileName)) {
             state = IDLE;
             DBG_OUTPUT_PORT.println("json file already downloaded");
@@ -206,7 +211,7 @@ static uint32_t crc32_word(uint32_t Crc, uint32_t Data)
 static void handleUpdate(twai_message_t *rxframe) {
   static int currentByte = 0;
   static uint32_t crc;
-        
+
   switch (updstate) {
     case SEND_MAGIC:
       if (rxframe->data[0] == 0x33) {
@@ -239,7 +244,7 @@ static void handleUpdate(twai_message_t *rxframe) {
       if (rxframe->data[0] == 'P') {
         char buffer[8];
         size_t bytesRead = 0;
-        
+
         if (currentByte < updateFile.size()) {
           updateFile.seek(currentByte);
           bytesRead = updateFile.readBytes(buffer, sizeof(buffer));
@@ -247,11 +252,11 @@ static void handleUpdate(twai_message_t *rxframe) {
 
         while (bytesRead < 8)
           buffer[bytesRead++] = 0xff;
-          
+
         currentByte += bytesRead;
         crc = crc32_word(crc, *(uint32_t*)&buffer[0]);
-        crc = crc32_word(crc, *(uint32_t*)&buffer[4]);      
-      
+        crc = crc32_word(crc, *(uint32_t*)&buffer[4]);
+
         tx_frame.identifier = 0x7dd;
         tx_frame.data_length_code = 8;
         tx_frame.data[0] = buffer[0];
@@ -262,7 +267,7 @@ static void handleUpdate(twai_message_t *rxframe) {
         tx_frame.data[5] = buffer[5];
         tx_frame.data[6] = buffer[6];
         tx_frame.data[7] = buffer[7];
-        
+
         updstate = SEND_PAGE;
         twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
       }
@@ -302,15 +307,15 @@ static void handleUpdate(twai_message_t *rxframe) {
       }
       break;
   }
-  
+
 }
 
 int StartUpdate(String fileName) {
   updateFile = SPIFFS.open(fileName, "r");
   //Reset host processor
-  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_RESET, 1);
+  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_RESET, 1U);
   updstate = SEND_MAGIC;
-  
+
   return (updateFile.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
 }
 
@@ -320,10 +325,10 @@ int GetCurrentUpdatePage() {
 
 void SendJson(WiFiClient client) {
   if (state != IDLE) return;
-  
+
   DynamicJsonDocument doc(30000);
   twai_message_t rxframe;
-  
+
   File file = SPIFFS.open(jsonFileName, "r");
   deserializeJson(doc, file);
   file.close();
@@ -332,10 +337,10 @@ void SendJson(WiFiClient client) {
 
   for (JsonPair kv : root) {
     int id = kv.value()["id"].as<int>();
-    
+
     if (id > 0) {
       requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xff);
-    
+
       if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
         kv.value()["value"] = ((double)*(int32_t*)&rxframe.data[4]) / 32;
       }
@@ -345,11 +350,176 @@ void SendJson(WiFiClient client) {
   serializeJson(doc, bufferedWifiClient);
 }
 
+void SendCanMapping(WiFiClient client) {
+  enum ReqMapStt { START, COBID, DATAPOSLEN, GAINOFS, DONE };
+
+  twai_message_t rxframe;
+  int index = SDO_INDEX_MAP_RD, subIndex = 0;
+  int cobid, pos, len, paramid;
+  bool rx = false;
+  String result;
+  ReqMapStt reqMapStt = START;
+
+  DynamicJsonDocument doc(8192);
+
+  while (DONE != reqMapStt) {
+    switch (reqMapStt) {
+    case START:
+      requestSdoElement(index, 0); //request COB ID
+      reqMapStt = COBID;
+      break;
+    case COBID:
+      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+        if (rxframe.data[0] != SDO_ABORT) {
+          cobid = *(int32_t*)&rxframe.data[4]; //convert bytes to word
+          subIndex++;
+          requestSdoElement(index, subIndex); //request parameter id, position and length
+          reqMapStt = DATAPOSLEN;
+        }
+        else if (!rx) { //after receiving tx item collect rx items
+          rx = true;
+          index = SDO_INDEX_MAP_RD + 0x80;
+          reqMapStt = START;
+          DBG_OUTPUT_PORT.println("Getting RX items");
+        }
+        else //no more items, we are done
+          reqMapStt = DONE;
+      }
+      else
+        reqMapStt = DONE; //don't lock up when not receiving
+      break;
+    case DATAPOSLEN:
+      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+        if (rxframe.data[0] != SDO_ABORT) {
+          paramid = *(uint16_t*)&rxframe.data[4];
+          pos = rxframe.data[6];
+          len = rxframe.data[7];
+          subIndex++;
+          requestSdoElement(index, subIndex); //gain and offset
+          reqMapStt = GAINOFS;
+        }
+        else { //all items of this message collected, move to next message
+          index++;
+          subIndex = 0;
+          reqMapStt = START;
+          DBG_OUTPUT_PORT.println("Mapping received, moving to next");
+        }
+      }
+      else
+        reqMapStt = DONE; //don't lock up when not receiving
+      break;
+    case GAINOFS:
+      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+        if (rxframe.data[0] != SDO_ABORT) {
+          float gain = (*(int32_t*)&rxframe.data[4]) & 0xFFFFFF;
+          gain /= 1000;
+          int offset = (int8_t)rxframe.data[7];
+          DBG_OUTPUT_PORT.printf("can %s %d %d %d %d %f %d\r\n", rx ? "rx" : "tx", paramid, cobid, pos, len, gain, offset);
+          StaticJsonDocument<200> subdoc;
+          JsonObject object = subdoc.to<JsonObject>();
+          object["isrx"] = rx;
+          object["id"] = cobid;
+          object["paramid"] = paramid;
+          object["position"] = pos;
+          object["length"] = len;
+          object["gain"] = gain;
+          object["offset"] = offset;
+          object["index"] = index;
+          object["subindex"] = subIndex;
+          doc.add(object);
+          subIndex++;
+          requestSdoElement(index, subIndex); //request next item
+          reqMapStt = DATAPOSLEN;
+        }
+        else //should never get here
+          reqMapStt = DONE;
+      }
+      else
+        reqMapStt = DONE; //don't lock up when not receiving
+      break;
+    case DONE:
+      break;
+    }
+  }
+
+  WriteBufferingStream bufferedWifiClient{client, 1000};
+  serializeJson(doc, bufferedWifiClient);
+}
+
+SetResult AddCanMapping(String json) {
+  if (state != IDLE) return CommError;
+
+  StaticJsonDocument<256> doc;
+  twai_message_t rxframe;
+
+  deserializeJson(doc, json);
+
+  if (doc["isrx"].isNull() || doc["id"].isNull() || doc["paramid"].isNull() || doc["position"].isNull() ||
+      doc["length"].isNull() || doc["gain"].isNull() || doc["offset"].isNull()) {
+    DBG_OUTPUT_PORT.println("Add: Missing argument");
+    return UnknownIndex;
+  }
+
+  int index = doc["isrx"] ? SDO_INDEX_MAP_RX : SDO_INDEX_MAP_TX;
+
+  setValueSdo(index, 0, (uint32_t)doc["id"]); //Send CAN Id
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+    DBG_OUTPUT_PORT.println("Sent COB Id");
+    setValueSdo(index, 1, doc["paramid"].as<uint32_t>() | (doc["position"].as<uint32_t>() << 16) | (doc["length"].as<uint32_t>() << 24)); //data item, position and length
+    if (rxframe.data[0] != SDO_ABORT && twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+      DBG_OUTPUT_PORT.println("Sent position and length");
+      setValueSdo(index, 2, (uint32_t)((int32_t)(doc["gain"].as<double>() * 1000) | doc["offset"].as<int32_t>() << 24)); //gain and offset
+
+      if (rxframe.data[0] != SDO_ABORT && twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+        if (rxframe.data[0] != SDO_ABORT){
+          DBG_OUTPUT_PORT.println("Sent gain and offset -> map successful");
+          return Ok;
+        }
+      }
+    }
+  }
+
+  DBG_OUTPUT_PORT.println("Mapping failed");
+
+  return CommError;
+}
+
+SetResult RemoveCanMapping(String json){
+  if (state != IDLE) return CommError;
+
+  StaticJsonDocument<256> doc;
+  twai_message_t rxframe;
+
+  deserializeJson(doc, json);
+
+  if (doc["index"].isNull() || doc["subindex"].isNull()) {
+    DBG_OUTPUT_PORT.println("Remove: Missing argument");
+
+    return UnknownIndex;
+  }
+
+  setValueSdo(doc["index"].as<uint32_t>(), doc["subindex"].as<uint8_t>(), 0U); //Writing 0 to map index removes the mapping
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+    if (rxframe.data[0] != SDO_ABORT){
+      DBG_OUTPUT_PORT.println("Item removed");
+      return Ok;
+    }
+    else {
+      DBG_OUTPUT_PORT.println("Invalid item index/subindex");
+      return UnknownIndex;
+    }
+  }
+  DBG_OUTPUT_PORT.println("Comm Error");
+  return CommError;
+}
+
 SetResult SetValue(String name, double value) {
   if (state != IDLE) return CommError;
-  
+
   twai_message_t rxframe;
-  
+
   int id = getId(name);
 
   setValueSdo(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF, value);
@@ -369,10 +539,10 @@ SetResult SetValue(String name, double value) {
 
 bool SaveToFlash() {
   if (state != IDLE) return false;
-  
+
   twai_message_t rxframe;
-  
-  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_SAVE, 0);
+
+  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_SAVE, 0U);
 
   if (twai_receive(&rxframe, pdMS_TO_TICKS(200)) == ESP_OK) {
     return true;
@@ -384,12 +554,12 @@ bool SaveToFlash() {
 
 String StreamValues(String names, int samples) {
   if (state != IDLE) return "";
-  
+
   twai_message_t rxframe;
 
   int ids[30], numItems = 0;
   String result;
-  
+
   for (int pos = 0; pos >= 0; pos = names.indexOf(',', pos + 1)) {
     String name = names.substring(pos + 1, names.indexOf(',', pos + 1));
     ids[numItems++] = getId(name);
@@ -400,7 +570,7 @@ String StreamValues(String names, int samples) {
       int id = ids[item];
       requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF);
     }
-    
+
     int item = 0;
     while (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
       if (item > 0) result += ",";
@@ -408,7 +578,7 @@ String StreamValues(String names, int samples) {
         result += "0";
       else {
         int receivedItem = (rxframe.data[1] << 8) + rxframe.data[3];
-        
+
         if (receivedItem == ids[item])
           result += String(((double)*(int32_t*)&rxframe.data[4]) / 32, 2);
         else
@@ -423,9 +593,9 @@ String StreamValues(String names, int samples) {
 
 double GetValue(String name) {
   if (state != IDLE) return 0;
-  
+
   twai_message_t rxframe;
-  
+
   int id = getId(name);
 
   requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF);
@@ -459,10 +629,10 @@ void Init(uint8_t nodeId) {
   };
 
   uint16_t id = 0x580 + nodeId;
-  
+
   twai_stop();
   twai_driver_uninstall();
-    
+
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t f_config = {.acceptance_code = (uint32_t)(id << 5) | (uint32_t)(0x7de << 21),
                                    .acceptance_mask = 0x001F001F,
@@ -492,7 +662,7 @@ void Init(uint8_t nodeId) {
 void Loop() {
   bool recvdResponse = false;
   twai_message_t rxframe;
-  
+
   if (twai_receive(&rxframe, 0) == ESP_OK) {
     if (rxframe.identifier == (0x580 | _nodeId)) {
       handleSdoResponse(&rxframe);
@@ -503,17 +673,17 @@ void Loop() {
     else
       DBG_OUTPUT_PORT.printf("Received unwanted frame %u\r\n", rxframe.identifier);
   }
-  
+
   if (updstate == REQUEST_JSON) {
     //Re-download JSON if necessary
-    
+
     retries--;
-    
-    if (recvdResponse || retries < 0) 
+
+    if (recvdResponse || retries < 0)
       updstate = UPD_IDLE; //if request was successful
     else
       requestSdoElement(SDO_INDEX_SERIAL, 0);
-      
+
      delay(100);
   }
 

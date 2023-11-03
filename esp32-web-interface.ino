@@ -1,8 +1,8 @@
-/* 
+/*
   FSWebServer - Example WebServer with SPIFFS backend for esp8266
   Copyright (c) 2015 Hristo Gochkov. All rights reserved.
   This file is part of the ESP8266WebServer library for Arduino environment.
- 
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -14,11 +14,11 @@
   You should have received a copy of the GNU Lesser General Public
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-  
+
   upload the contents of the data folder with MkSPIFFS Tool ("ESP8266 Sketch Data Upload" in Tools menu in Arduino IDE)
   or you can upload the contents of a folder if you CD in that folder and run the following command:
   for file in `ls -A1`; do curl -F "file=@$PWD/$file" esp8266fs.local/edit; done
-  
+
   access the sample web page at http://esp8266fs.local
   edit the page by going to http://esp8266fs.local/edit
 */
@@ -64,7 +64,7 @@
 #define INVERTER_TX 17
 #define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
 #define UART_MESSBUF_SIZE 100
-#define LED_BUILTIN 13 //clashes with SDIO, need to change to suit hardware and uncomment lines
+#define LED_BUILTIN  5
 
 #define RESERVED_SD_SPACE 2000000000
 #define SDIO_BUFFER_SIZE 16384
@@ -118,12 +118,12 @@ bool createNextSDFile()
       snprintf(filename, 50, "/%010d.bin", nextFileIndex++);
   }
   while(SD_MMC.exists(filename));
-      
+
   dataFile = SD_MMC.open(filename, FILE_WRITE);
-  if (dataFile) 
+  if (dataFile)
   {
     dataFile.flush(); //make sure FAT updated for debugging purposes
-    DBG_OUTPUT_PORT.println("Created file: " + String(filename)); 
+    DBG_OUTPUT_PORT.println("Created file: " + String(filename));
     return true;
   }
   else
@@ -139,16 +139,16 @@ uint32_t deleteOldest(uint64_t spaceRequired)
   time_t t;
   uint32_t nextIndex = 0;
   uint32_t fileCount = 0;
-  
+
   spaceRem = SD_MMC.totalBytes() - SD_MMC.usedBytes();
 
   DBG_OUTPUT_PORT.println("Space Required = " + formatBytes(spaceRequired));
   DBG_OUTPUT_PORT.println("Space Remaining = " + formatBytes(spaceRem));
-  
+
   do
   {
     root = SD_MMC.open("/");
-    
+
     oldestTime = 0;
     fileCount = 0;
     while(file = root.openNextFile())
@@ -174,14 +174,14 @@ uint32_t deleteOldest(uint64_t spaceRequired)
         }
       }
       file.close();
-    }  
+    }
     root.close();
 
     if((spaceRem < spaceRequired) || (fileCount >= MAX_SD_FILES))
     {
       if(oldestFileName.length() > 0)
       {
-        
+
         if(SD_MMC.remove(oldestFileName))
           DBG_OUTPUT_PORT.println("Deleted file: " + oldestFileName);
         else
@@ -332,7 +332,7 @@ void handleRTCSet() {
     server.send(200, "text/json", "{\"result\":\"" + timestamp + "\"}");
     DateTime now = DateTime(timestamp.toInt());
     ext_rtc.adjust(now);
-    int_rtc.setTime(now.unixtime());  
+    int_rtc.setTime(now.unixtime());
     handleRTCNow();
  } else {
     server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
@@ -345,7 +345,7 @@ void handleSdCardDeleteAll() {
       if (haveSDCard) {
         root = SD_MMC.open("/");
         while(file = root.openNextFile())
-        { 
+        {
           String filename = file.name();
           if(SD_MMC.remove("/" + filename))
             DBG_OUTPUT_PORT.println("Deleted file: " + filename);
@@ -359,7 +359,7 @@ void handleSdCardDeleteAll() {
 
 }
 void handleSdCardList() {
-  
+
   if (!haveSDCard) {
     server.send(200, "text/json", "{\"error\": \"No SD Card\"}");
     return;
@@ -392,7 +392,7 @@ void handleSdCardList() {
 
 void handleFileList() {
   String path = "/";
-  if(server.hasArg("dir")) 
+  if(server.hasArg("dir"))
     String path = server.arg("dir");
   //DBG_OUTPUT_PORT.println("handleFileList: " + path);
   File root = SPIFFS.open(path);
@@ -414,7 +414,7 @@ void handleFileList() {
     output += "\"}";
     file = root.openNextFile();
   }
-  
+
   output += "]";
   server.send(200, "text/json", output);
 }
@@ -458,7 +458,7 @@ static void sendCommand(String cmd)
   uart_write_bytes(INVERTER_PORT, cmd.c_str(), cmd.length());
   //Inverter.print("\n");
   uart_write_bytes(INVERTER_PORT, "\n", 1);
-  //Inverter.readStringUntil('\n'); //consume echo  
+  //Inverter.readStringUntil('\n'); //consume echo
   uart_readUntill('\n');
 }
 
@@ -467,7 +467,9 @@ static void handleCommand() {
   if(!server.hasArg("cmd")) {server.send(500, "text/plain", "BAD ARGS"); return;}
 
   String cmd = server.arg("cmd");
-  
+
+  digitalWrite(LED_BUILTIN, HIGH);
+
   if (cmd == "json") {
     OICan::SendJson(server.client());
   }
@@ -478,7 +480,7 @@ static void handleCommand() {
     String name = str.substring(nameStart, valueStart);
     double value = str.substring(valueStart, str.indexOf('\r')).toDouble();
     name.trim();
-    
+
     switch (OICan::SetValue(name, value)) {
       case OICan::Ok:
         server.send(200, "text/plain", "Set Ok");
@@ -500,9 +502,9 @@ static void handleCommand() {
     int namesStart = str.lastIndexOf(' ');
     int samples = str.substring(samplesStart, namesStart).toInt();
 
-    String names = str.substring(namesStart, str.indexOf('\r'));    
+    String names = str.substring(namesStart, str.indexOf('\r'));
     String result = OICan::StreamValues(names, samples);
-    
+
     server.send(200, "text/plain", result);
   }
   else if (cmd == "save") {
@@ -513,7 +515,33 @@ static void handleCommand() {
       server.send(200, "text/plain", "No reply to save command");
     }
   }
-//  server.send(200, "text/json", output);
+
+  digitalWrite(LED_BUILTIN, LOW);
+}
+
+static void handleCanMap() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  OICan::SetResult res = OICan::Ok;
+
+  if (server.hasArg("add")) {
+    res = OICan::AddCanMapping(server.arg("add"));
+  }
+  else if (server.hasArg("remove")) {
+    res = OICan::RemoveCanMapping(server.arg("remove"));
+  }
+  else if (server.hasArg("edit")) {
+    res = OICan::RemoveCanMapping(server.arg("edit"));
+    if (res == OICan::Ok)
+      res = OICan::AddCanMapping(server.arg("edit"));
+  }
+
+  if (res == OICan::Ok)
+    OICan::SendCanMapping(server.client());
+  else if (res == OICan::CommError)
+    server.send(500, "text/plain", "CAN communication error");
+  else if (res == OICan::UnknownIndex)
+    server.send(500, "text/plain", "Invalid request");
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 static void handleUpdate()
@@ -522,7 +550,8 @@ static void handleUpdate()
   if(!server.hasArg("step") || !server.hasArg("file")) {server.send(500, "text/plain", "BAD ARGS"); return;}
   int step = server.arg("step").toInt();
   String message;
-  
+  digitalWrite(LED_BUILTIN, HIGH);
+
   if (step < 0)
     pages = OICan::StartUpdate(server.arg("file"));
   else {
@@ -530,8 +559,9 @@ static void handleUpdate()
       OICan::Loop();
     }
   }
-    
+
   server.send(200, "text/json", "{ \"message\": \"" + message + "\", \"pages\": " + pages + " }");
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 static void handleNodeId()
@@ -540,18 +570,18 @@ static void handleNodeId()
     int id = server.arg("id").toInt();
     OICan::Init(id);
   }
-  
+
   server.send(200, "text/plain", String(OICan::GetNodeId()));
 }
 
 static void handleWifi()
 {
   bool updated = true;
-  if(server.hasArg("apSSID") && server.hasArg("apPW")) 
+  if(server.hasArg("apSSID") && server.hasArg("apPW"))
   {
     WiFi.softAP(server.arg("apSSID").c_str(), server.arg("apPW").c_str());
   }
-  else if(server.hasArg("staSSID") && server.hasArg("staPW")) 
+  else if(server.hasArg("staSSID") && server.hasArg("staPW"))
   {
     WiFi.mode(WIFI_AP_STA);
     WiFi.begin(server.arg("staSSID").c_str(), server.arg("staPW").c_str());
@@ -572,7 +602,7 @@ static void handleWifi()
   {
     File file = SPIFFS.open("/wifi-updated.html", "r");
     size_t sent = server.streamFile(file, getContentType("wifi-updated.html"));
-    file.close();    
+    file.close();
   }
 }
 
@@ -607,15 +637,16 @@ void setup(void){
   uart_param_config(INVERTER_PORT, &uart_config);
   uart_set_pin(INVERTER_PORT, INVERTER_TX, INVERTER_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   uart_driver_install(INVERTER_PORT, SDIO_BUFFER_SIZE * 3, 0, 0, NULL, 0); //x3 allows twice card write size to buffer while writes
-  delay(100); 
-  
+  delay(100);
+
+  pinMode(LED_BUILTIN, OUTPUT);
 
   //check for external RTC and if present use to initialise on-chip RTC
   if (ext_rtc.begin())
   {
     haveRTC = true;
-    DBG_OUTPUT_PORT.println("External RTC found");  
-    if (! ext_rtc.initialized() || ext_rtc.lostPower()) 
+    DBG_OUTPUT_PORT.println("External RTC found");
+    if (! ext_rtc.initialized() || ext_rtc.lostPower())
     {
       DBG_OUTPUT_PORT.println("RTC is NOT initialized, setting to build time");
       ext_rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -623,19 +654,19 @@ void setup(void){
 
     ext_rtc.start();
     DateTime now = ext_rtc.now();
-    int_rtc.setTime(now.unixtime());  
+    int_rtc.setTime(now.unixtime());
   }
   else
-    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names"); 
+    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names");
 
   //initialise SD card in SDIO mode
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
   if (SD_MMC.begin()) {
-    DBG_OUTPUT_PORT.println("Started SD_MMC");    
-    haveSDCard = true;    
+    DBG_OUTPUT_PORT.println("Started SD_MMC");
+    haveSDCard = true;
   }
   else
-    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");  
+    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
 
   //Start SPI Flash file system
   SPIFFS.begin();
@@ -650,13 +681,13 @@ void setup(void){
   WiFi.setTxPower(WIFI_POWER_19_5dBm);//25); //dbm
   WiFi.begin();
   sta_tick.attach(10, staCheck);
-  
+
   MDNS.begin(host);
-  
+
   OICan::Init(1);
-    
+
   updater.setup(&server);
-  
+
   //SERVER INIT
   ArduinoOTA.setHostname(host);
   ArduinoOTA.begin();
@@ -682,11 +713,12 @@ void setup(void){
 
   server.on("/wifi", handleWifi);
   server.on("/cmd", handleCommand);
+  server.on("/canmap", handleCanMap);
   server.on("/fwupdate", handleUpdate);
   server.on("/baud", handleBaud);
   server.on("/version", [](){ server.send(200, "text/plain", "1.1.R"); });
   server.on("/nodeid", handleNodeId);
-  
+
   //called when the url is not defined here
   //use it to load content from SPIFFS
   server.onNotFound([](){
@@ -768,7 +800,7 @@ void loop(void){
   // note: ArduinoOTA.handle() calls MDNS.update();
   server.handleClient();
   ArduinoOTA.handle();
-  
+
   OICan::Loop();
 
   if((WiFi.softAPgetStationNum() > 0) || (WiFi.status() == WL_CONNECTED))
