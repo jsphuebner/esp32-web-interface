@@ -241,6 +241,7 @@ bool handleFileRead(String path){
     if(SPIFFS.exists(pathWithGz))
       path += ".gz";
     File file = SPIFFS.open(path, "r");
+    server.sendHeader("Cache-Control", "max-age=86400");
     size_t sent = server.streamFile(file, contentType);
     file.close();
     return true;
