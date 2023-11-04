@@ -43,6 +43,7 @@
 			<Add option="-mcpu=arm7tdmi" />
 			<Add option="-T ld/target.ld" />
 		</Linker>
+		<Unit filename="data/docstrings.js" />
 		<Unit filename="data/gauges.html" />
 		<Unit filename="data/gauges.js" />
 		<Unit filename="data/index.html" />
@@ -50,13 +51,16 @@
 		<Unit filename="data/inverter.js" />
 		<Unit filename="data/log.html" />
 		<Unit filename="data/log.js" />
+		<Unit filename="data/plot.js" />
 		<Unit filename="data/remote.html" />
 		<Unit filename="data/rtc.html" />
 		<Unit filename="data/sdcard.html" />
 		<Unit filename="data/style.css" />
 		<Unit filename="data/syncofs.html" />
+		<Unit filename="data/ui.js" />
 		<Unit filename="data/wifi-updated.html" />
 		<Unit filename="data/wifi.html" />
+		<Unit filename="data/wifi.js" />
 		<Unit filename="esp32-web-interface.ino" />
 		<Unit filename="src/oi_can.cpp" />
 		<Unit filename="src/oi_can.h" />
