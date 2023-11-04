@@ -236,6 +236,8 @@ static void handleUpdate(twai_message_t *rxframe) {
         tx_frame.data[0] = (updateFile.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
         updstate = SEND_PAGE;
         crc = 0xFFFFFFFF;
+        currentByte = 0;
+        currentPage = 0;
         DBG_OUTPUT_PORT.printf("Sending size %u\r\n", tx_frame.data[0]);
         twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
       }
