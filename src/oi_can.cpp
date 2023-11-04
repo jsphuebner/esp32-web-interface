@@ -103,7 +103,7 @@ static void setValueSdo(uint16_t index, uint8_t subIndex, uint32_t value) {
 }
 
 static void setValueSdo(uint16_t index, uint8_t subIndex, double value) {
-  setValueSdo(index, subIndex, value * 32);
+  setValueSdo(index, subIndex, (uint32_t)(value * 32));
 }
 
 static int getId(String name) {
