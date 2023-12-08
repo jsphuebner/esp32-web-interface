@@ -32,6 +32,49 @@ var ui = {
 	// Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
 	categoryVisible: {},
 
+  shrinkNavbar: function() {
+		document.getElementById("navbar").style.width = "80px";
+		var cw = document.getElementById("content-wrapper");
+		cw.style.left = "80px";
+		cw.style.width = "calc(100% - 80px)";
+		var logo = document.getElementById("logo");
+		logo.style.width = "80px";
+		logo.style.height = "50px";
+		// buttons
+		var buttons = document.getElementsByClassName("buttonimg");
+		for ( let i = 0; i < buttons.length; i++ ) {
+			console.log("button ", i, " ", buttons[i]);
+			buttons[i].style.width = "60px";
+		}
+		// hide toggles, version box
+		var itemsToHideOnSmallScreen = document.getElementsByClassName("small-screen-hide");
+		for ( let i = 0; i < itemsToHideOnSmallScreen.length; i++ ) {
+			console.log("item ", i, " ", itemsToHideOnSmallScreen[i]);
+			itemsToHideOnSmallScreen[i].style.display = "none";
+		}
+	},
+
+	growNavbar: function() {
+		document.getElementById("navbar").style.width = "180px";
+		var cw = document.getElementById("content-wrapper");
+		cw.style.left = "180px";
+		cw.style.width = "calc(100% - 180px)";
+		var logo = document.getElementById("logo");
+		logo.style.width = "180px";
+		logo.style.height = "100px";
+		// buttons
+		var buttons = document.getElementsByClassName("buttonimg");
+		for ( let i = 0; i < buttons.length; i++ ) {
+			buttons[i].style.width = "24px";
+		}
+		// show toggles, version box
+		var itemsToShowOnBigScreen = document.getElementsByClassName("small-screen-hide");
+		for ( let i = 0; i < itemsToShowOnBigScreen.length; i++ ) {
+			itemsToShowOnBigScreen[i].style.display = "block";
+		}
+	},
+
+
 	/** @brief switch to a different page tab */
 	openPage: function(pageName, elmnt, color)
 	{
@@ -51,6 +94,19 @@ var ui = {
 	    // show selected tab
 	    document.getElementById(pageName).style.display = "flex";
 	    elmnt.style.backgroundColor = color;
+
+	    // Right menu has nothing in it for spot values, so hide it
+	    var mainRights = document.getElementsByClassName("main-right");
+	    if ( pageName == "spotvalues" ) {
+			  for ( i = 0; i < mainRights.length; i++ ) {
+				  mainRights[i].style.display = "none";
+		  	}
+	    }
+	    else {
+			  for ( i = 0; i < mainRights.length; i++ ) {
+				  mainRights[i].style.display = "block";
+			  }
+	    }
 	},
 
 	/** @brief excutes when page finished loading. Creates tables and chart */
@@ -1102,17 +1158,17 @@ var ui = {
     var map = {};
 
 		// fetch values from form
-		map.isrx = document.getElementById('txrx').value == 'true';
+		map.isrx = document.getElementById('txrx').value == 'rx';
 		map.paramid = parseInt(document.getElementById('add-can-mapping-spot-value-drop-down').value);
 		map.id = parseInt(document.getElementById('canid').value);
-    map.position = parseInt(document.getElementById('canpos').value);
-    map.length = parseInt(document.getElementById('canbits').value);
-    map.gain = parseInt(document.getElementById('cangain').value);
-    map.offset = parseInt(document.getElementById('canoffset').value);
-    // send new CAN mapping to inverter
-    inverter.addCanMapping(ui.populateExistingCanMappingTable, map);
-    // hide form
-    modal.hideModal('can-mapping');
+		map.position = parseInt(document.getElementById('canpos').value);
+		map.length = parseInt(document.getElementById('canbits').value);
+		map.gain = parseFloat(document.getElementById('cangain').value);
+		map.offset = parseInt(document.getElementById('canoffset').value);
+		// send new CAN mapping to inverter
+		inverter.addCanMapping(ui.populateExistingCanMappingTable, map);
+		// hide form
+		modal.hideModal('can-mapping');
 	},
 
 	/** @brief Populate the table of existing CAN mappings */
