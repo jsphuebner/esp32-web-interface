@@ -89,6 +89,7 @@ You can choose between the following tools:
 [Arduino IDE](https://www.arduino.cc/en/software) is an easy-to-use desktop IDE, which provides a quick and integrated way to develop and update your board.
 * [Initial setup](doc/ARDUINO_IDE_setup.md)
 * [Day to day usage](doc/ARDUINO_IDE_usage.md)
+* [Initial setup with Arduino IDE version 2](doc/arduino2_with_CAN_installation_notes.md)
 
 ## PlatformIO
 [PlatformIO](https://platformio.org/) is a set of tools, among which [PlatformIO Core (CLI)](https://docs.platformio.org/en/latest/core/index.html) is a command line interface that can be used to build many kind of projects. In particular Arduino-based projects like this one.
