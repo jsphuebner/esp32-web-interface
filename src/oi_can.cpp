@@ -362,7 +362,7 @@ void SendCanMapping(WiFiClient client) {
   String result;
   ReqMapStt reqMapStt = START;
 
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(16384);
 
   while (DONE != reqMapStt) {
     switch (reqMapStt) {
