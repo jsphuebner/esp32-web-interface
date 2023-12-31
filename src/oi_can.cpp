@@ -395,7 +395,7 @@ void SendCanMapping(WiFiClient client) {
         if (rxframe.data[0] != SDO_ABORT) {
           paramid = *(uint16_t*)&rxframe.data[4];
           pos = rxframe.data[6];
-          len = rxframe.data[7];
+          len = (int8_t)rxframe.data[7];
           subIndex++;
           requestSdoElement(index, subIndex); //gain and offset
           reqMapStt = GAINOFS;
@@ -468,7 +468,7 @@ SetResult AddCanMapping(String json) {
 
   if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
     DBG_OUTPUT_PORT.println("Sent COB Id");
-    setValueSdo(index, 1, doc["paramid"].as<uint32_t>() | (doc["position"].as<uint32_t>() << 16) | (doc["length"].as<uint32_t>() << 24)); //data item, position and length
+    setValueSdo(index, 1, doc["paramid"].as<uint32_t>() | (doc["position"].as<uint32_t>() << 16) | (doc["length"].as<int32_t>() << 24)); //data item, position and length
     if (rxframe.data[0] != SDO_ABORT && twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
       DBG_OUTPUT_PORT.println("Sent position and length");
       setValueSdo(index, 2, (uint32_t)((int32_t)(doc["gain"].as<double>() * 1000) | doc["offset"].as<int32_t>() << 24)); //gain and offset
