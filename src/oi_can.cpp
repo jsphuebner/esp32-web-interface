@@ -332,8 +332,14 @@ void SendJson(WiFiClient client) {
   twai_message_t rxframe;
 
   File file = SPIFFS.open(jsonFileName, "r");
-  deserializeJson(doc, file);
+  auto result = deserializeJson(doc, file);
   file.close();
+
+  if (result != DeserializationError::Ok) {
+    SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
+    updstate == REQUEST_JSON;
+    return;
+  }
 
   JsonObject root = doc.as<JsonObject>();
 

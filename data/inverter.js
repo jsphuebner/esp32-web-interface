@@ -26,6 +26,7 @@
 var paramsCache = {
   data: undefined,
   dataById: {},
+  failedFetchCount: 0,
 
   get: function(name) {
     if ( paramsCache.data !== undefined )
@@ -77,6 +78,25 @@ var inverter = {
     {
       if (replyFunc) replyFunc(this.responseText);
     }
+    xmlhttp.onreadystatechange = function()
+    {
+      if (xmlhttp.readyState === XMLHttpRequest.DONE) {
+        console.log(req + ": " + xmlhttp.status);
+        if (xmlhttp.status != 200) {
+          paramsCache.failedFetchCount += 1;
+          if ( paramsCache.failedFetchCount >= 2 ){
+            ui.showCommunicationErrorBar();
+          }
+        }
+        else {
+          paramsCache.failedFetchCount = 0;
+        }
+        if ( paramsCache.failedFetchCount < 2 )
+        {
+          ui.hideCommunicationErrorBar();
+        }
+      }
+    }
 
     if (repeat)
       req += "&repeat=" + repeat;
@@ -104,6 +124,7 @@ var inverter = {
             inverter.firmwareVersion = parseFloat(param.value);
         }
       } catch(ex) {}
+
       paramsCache.setData(params);
       if (replyFunc) replyFunc(params);
     });

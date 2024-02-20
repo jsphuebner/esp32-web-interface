@@ -141,7 +141,6 @@ var ui = {
 		wifi.populateWiFiTab();
 		ui.populateFileList();
 		ui.refreshStatusBox();
-		ui.refreshMessagesBox();
 		ui.getNodeId();
 	},
 
@@ -150,7 +149,6 @@ var ui = {
 	{
 		ui.updateTables();
 		ui.refreshStatusBox();
-		ui.refreshMessagesBox();
 	},
 
 	getNodeId: function() {
@@ -390,6 +388,16 @@ var ui = {
       autoReloadCheckbox.checked = false;
       clearInterval(ui.autoRefreshHandle);
     }
+	},
+
+	/** @brief Show notification bar */
+	showCommunicationErrorBar: function() {
+		document.getElementById('communication-error-bar').style.display = 'block';
+	},
+
+	/** @brief Hide notification bar */
+	hideCommunicationErrorBar: function() {
+		document.getElementById('communication-error-bar').style.display = 'none';
 	},
 	/**
 	 * ~~~ DASHBOARD ~~~
