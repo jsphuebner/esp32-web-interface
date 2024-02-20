@@ -352,7 +352,7 @@ var ui = {
 		versionDiv.innerHTML = "";
 		var firmwareVersion = String(paramsCache.get('version'));
 		versionDiv.innerHTML += "firmware : " + firmwareVersion + "<br>";
-		versionDiv.innerHTML += "web : v2.1"
+		versionDiv.innerHTML += "web : v2.2"
 	},
 
 	/** @brief If beta features are visible, hide them. If hidden, show them. */
