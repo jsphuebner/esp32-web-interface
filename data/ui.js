@@ -32,13 +32,15 @@ var ui = {
 	// Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
 	categoryVisible: {},
 
+	navbarIsBig: true,
+
   shrinkNavbar: function() {
-		document.getElementById("navbar").style.width = "80px";
+		document.getElementById("navbar").style.width = "60px";
 		var cw = document.getElementById("content-wrapper");
-		cw.style.left = "80px";
-		cw.style.width = "calc(100% - 80px)";
+		cw.style.left = "60px";
+		cw.style.width = "calc(100% - 60px)";
 		var logo = document.getElementById("logo");
-		logo.style.width = "80px";
+		logo.style.width = "60px";
 		logo.style.height = "50px";
 		// buttons
 		var buttons = document.getElementsByClassName("buttonimg");
@@ -74,6 +76,15 @@ var ui = {
 		}
 	},
 
+  toggleNavbar: function() {
+		if ( ui.navbarIsBig ) {
+			ui.shrinkNavbar();
+			ui.navbarIsBig = false;
+		} else {
+			ui.growNavbar();
+			ui.navbarIsBig = true;
+		}
+	},
 
 	/** @brief switch to a different page tab */
 	openPage: function(pageName, elmnt, color)

@@ -119,7 +119,7 @@
 				<img src="logo.png" onclick="ui.toggleNavbar();">
 			</div>
 
-            <div>
+      <div>
 				<a class="tablink" onclick="ui.openPage('dashboard', this, 'white')" style="background-color:white">
 					<!-- /icon-grid.png -->
 					<img class="navimg" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAFpJREFUSIljYBhO4DADA8N/PPgwOWoZkTT9J8IRMPVEq2XBYwgywGUgQbVMRLiEIjBqAUGALZKJSSFEq0X2wRECao/gYBNSO4zAaFGBVe3Qz2hD34LRomLgAQDIVzQ/KtRExgAAAABJRU5ErkJggg=="><p class="navbar-text">DASHBOARD</p></a>
@@ -152,27 +152,19 @@
 					<img class="navimg" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAA7DAAAOwwHHb6hkAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAdRJREFUSInF1T1rlEEUBeBHYpHFJZDFQkhqsxELwdrPwlLtLP0g+heU+Ee0sLIViRYWJgGjEFBT6ppEsDGFNsYQLSUWc4d9s072fSOIB6Y598y5l7kzd/jHOFAT7+AyLqKLyeA3sIqnmMO3/SZuYRZb2KlZ30Pbamo+iZWKwXPMYAqHYnVxE/MV3QommphvxIY1nG5Q0Bmsx56NYUlalcpfYLyBecY4lmLvG4yWRLP6lQ+an8Az/MBXPCxU2sHH8LgzaN7Rb+jgsZzET3829wuODGjP6jd+V5E39Bs6iNzIBxiT+rQQ3L2CPseuVcm5IGcKGx6hJ92ejOOhf1fQ34rY4yq5FuRUYUMJF4Yk6EZstUpuB9muMR6RjjPr7xY07Yht7zfBSFScm3w/uEGMRXyrSjY5opyghyv2nmO7juhgkD0cxalIVsIvqbl1yNf8fZW8HlnnGxjUYTG8rlbJjvQ4dqTZshdeYXlI/Hx4bCqMmjwqPuHwXySojorbJcEo3oZgqVTBEHTwUs2wIw2wPK7XpdlSh3P6lX/W4E+YiCryfV+Qnv+09E7aOBbcYkX3uol5xqg0cnPjh61N6cyLx1L36Y/jkvTpT9v96X+QPv0nkeT/4DdxyppwcyvRBAAAAABJRU5ErkJggg=="><p class="navbar-text">SUPPORT</p></a>
 			</div>
 
-      <div id="nodeid-div" class="small-screen-hide">
+      <div id="nodeid-div" class="control small-screen-hide">
         <label for="nodeid">Node ID:</label>
         <input id="nodeid" type="number" id="nodeid" step="1" min="1" max="63" value="1" onchange="ui.setNodeId(this.value)"/>
       </div>
-
-			<!-- spinner div -->
-			<div id="spinner-div" class="small-screen-hide">
-				<img style="vertical-align:middle" src="ajax-loader.gif"><p> refreshing...</p>
-			</div>
-
 			<!-- auto reload toggle -->
-			<div id="auto-reload-toggle-div" class="small-screen-hide">
+			<div id="auto-reload-toggle-div" class="control small-screen-hide">
 				<label class="switch">
 					<input id="auto-reload-checkbox" type="checkbox" onclick="ui.setAutoReload(this.checked);"><span class="slider round"></span>
 				</label><p style="display: inline-block;">Auto reload</p>
 			</div>
-			<!-- beta features toggle -->
-			<div id="beta-features-toggle-div" onclick="ui.toggleBetaFeaturesVisibility();" class="small-screen-hide">
-				<label class="switch">
-					<input id="beta-features-checkbox" type="checkbox"><span class="slider round"></span>
-				</label><p style="display: inline-block;">Beta features</p>
+			<!-- spinner div -->
+			<div id="spinner-div" class="control">
+				<img style="vertical-align:middle" src="ajax-loader.gif"><p> refreshing...</p>
 			</div>
 
 			<div id="version" class="small-screen-hide"></div>
