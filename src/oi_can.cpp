@@ -325,8 +325,8 @@ int GetCurrentUpdatePage() {
   return currentPage;
 }
 
-void SendJson(WiFiClient client) {
-  if (state != IDLE) return;
+bool SendJson(WiFiClient client) {
+  if (state != IDLE) return false;
 
   DynamicJsonDocument doc(30000);
   twai_message_t rxframe;
@@ -338,10 +338,11 @@ void SendJson(WiFiClient client) {
   if (result != DeserializationError::Ok) {
     SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
     updstate == REQUEST_JSON;
-    return;
+    return false;
   }
 
   JsonObject root = doc.as<JsonObject>();
+  int failed = 0;
 
   for (JsonPair kv : root) {
     int id = kv.value()["id"].as<int>();
@@ -351,11 +352,16 @@ void SendJson(WiFiClient client) {
 
       if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
         kv.value()["value"] = ((double)*(int32_t*)&rxframe.data[4]) / 32;
+      } else {
+        failed++;
       }
     }
   }
-  WriteBufferingStream bufferedWifiClient{client, 1000};
-  serializeJson(doc, bufferedWifiClient);
+  if (failed < 5) {
+    WriteBufferingStream bufferedWifiClient{client, 1000};
+    serializeJson(doc, bufferedWifiClient);
+  }
+  return failed < 5;
 }
 
 void SendCanMapping(WiFiClient client) {

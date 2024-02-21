@@ -472,7 +472,8 @@ static void handleCommand() {
   digitalWrite(LED_BUILTIN, HIGH);
 
   if (cmd == "json") {
-    OICan::SendJson(server.client());
+    if (!OICan::SendJson(server.client()))
+      server.send(500, "text/plain", "CAN communication error");
   }
   else if (cmd.startsWith("set")) {
     String str(cmd);

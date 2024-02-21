@@ -27,7 +27,7 @@ enum SetResult { Ok, UnknownIndex, ValueOutOfRange, CommError };
 
 void Init(uint8_t nodeId);
 void Loop();
-void SendJson(WiFiClient c);
+bool SendJson(WiFiClient c);
 void SendCanMapping(WiFiClient c);
 SetResult AddCanMapping(String json);
 SetResult RemoveCanMapping(String json);
