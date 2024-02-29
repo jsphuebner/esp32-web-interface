@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="esp32-web-interface" />
+		<Option makefile_is_custom="1" />
+		<Option pch_mode="2" />
+		<Option compiler="arm-elf-gcc" />
+		<Build>
+			<Target title="default">
+				<Option output="flash.sh" prefix_auto="0" extension_auto="0" />
+				<Option object_output="default" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-g" />
+				</Compiler>
+				<MakeCommands>
+					<Build command="pio run" />
+					<CompileFile command="$make -f $makefile $file" />
+					<Clean command="$make -f $makefile clean$target" />
+					<DistClean command="$make -f $makefile distclean$target" />
+					<AskRebuildNeeded command="$make -q -f $makefile $target" />
+					<SilentBuild command="pio run &gt; $(CMD_NULL)" />
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add option="-g" />
+			<Add option="-O2" />
+			<Add option="-fno-common" />
+			<Add option="-mcpu=arm7tdmi" />
+			<Add option="-DEK_AT91SAM7A3" />
+			<Add option="-D__NO_CTOR_DTOR_SUPPORT__" />
+			<Add option="-DUSE_IRQ" />
+			<Add directory="src" />
+			<Add directory="h" />
+		</Compiler>
+		<Linker>
+			<Add option="-s" />
+			<Add option="-Wl,-Map,map.txt" />
+			<Add option="-mcpu=arm7tdmi" />
+			<Add option="-T ld/target.ld" />
+		</Linker>
+		<Unit filename="data/docstrings.js" />
+		<Unit filename="data/gauges.html" />
+		<Unit filename="data/gauges.js" />
+		<Unit filename="data/index.html" />
+		<Unit filename="data/index.js" />
+		<Unit filename="data/inverter.js" />
+		<Unit filename="data/log.js" />
+		<Unit filename="data/plot.js" />
+		<Unit filename="data/remote.html" />
+		<Unit filename="data/style.css" />
+		<Unit filename="data/syncofs.html" />
+		<Unit filename="data/ui.js" />
+		<Unit filename="data/wifi-updated.html" />
+		<Unit filename="data/wifi.html" />
+		<Unit filename="data/wifi.js" />
+		<Unit filename="esp32-web-interface.ino" />
+		<Unit filename="platformio.ini" />
+		<Unit filename="src/oi_can.cpp" />
+		<Unit filename="src/oi_can.h" />
+		<Extensions>
+			<editor_config active="1" use_tabs="0" tab_indents="1" tab_width="2" indent="2" eol_mode="3" />
+			<lib_finder disable_auto="1" />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>
