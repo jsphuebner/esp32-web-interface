@@ -142,6 +142,7 @@ var ui = {
 		ui.populateFileList();
 		ui.refreshStatusBox();
 		ui.getNodeId();
+		ui.setAutoReload(true);
 	},
 
 	/** @brief automatically update data on the UI */

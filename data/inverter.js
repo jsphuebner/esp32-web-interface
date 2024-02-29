@@ -74,12 +74,10 @@ var inverter = {
     var xmlhttp=new XMLHttpRequest();
     var req = "/cmd?cmd=" + cmd;
 
-    xmlhttp.onload = function()
-    {
+    xmlhttp.onload = function() {
       if (replyFunc) replyFunc(this.responseText);
     }
-    xmlhttp.onreadystatechange = function()
-    {
+    xmlhttp.onreadystatechange = function() {
       if (xmlhttp.readyState === XMLHttpRequest.DONE) {
         console.log(req + ": " + xmlhttp.status);
         if (xmlhttp.status != 200) {
@@ -91,8 +89,7 @@ var inverter = {
         else {
           paramsCache.failedFetchCount = 0;
         }
-        if ( paramsCache.failedFetchCount < 2 )
-        {
+        if ( paramsCache.failedFetchCount < 2 ) {
           ui.hideCommunicationErrorBar();
         }
       }
