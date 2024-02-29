@@ -1,8 +1,8 @@
-/*
+/* 
   FSWebServer - Example WebServer with SPIFFS backend for esp8266
   Copyright (c) 2015 Hristo Gochkov. All rights reserved.
   This file is part of the ESP8266WebServer library for Arduino environment.
-
+ 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -14,11 +14,11 @@
   You should have received a copy of the GNU Lesser General Public
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-
+  
   upload the contents of the data folder with MkSPIFFS Tool ("ESP8266 Sketch Data Upload" in Tools menu in Arduino IDE)
   or you can upload the contents of a folder if you CD in that folder and run the following command:
   for file in `ls -A1`; do curl -F "file=@$PWD/$file" esp8266fs.local/edit; done
-
+  
   access the sample web page at http://esp8266fs.local
   edit the page by going to http://esp8266fs.local/edit
 */
@@ -58,8 +58,8 @@
 
 #define DBG_OUTPUT_PORT Serial2
 #define INVERTER_PORT UART_NUM_0
-#define INVERTER_RX 16
-#define INVERTER_TX 17
+#define INVERTER_RX 3
+#define INVERTER_TX 1
 #define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
 #define UART_MESSBUF_SIZE 100
 #define LED_BUILTIN 13 //clashes with SDIO, need to change to suit hardware and uncomment lines
@@ -126,12 +126,12 @@ bool createNextSDFile()
       snprintf(filename, 50, "/%010d.bin", nextFileIndex++);
   }
   while(SD_MMC.exists(filename));
-
+      
   dataFile = SD_MMC.open(filename, FILE_WRITE);
-  if (dataFile)
+  if (dataFile) 
   {
     dataFile.flush(); //make sure FAT updated for debugging purposes
-    DBG_OUTPUT_PORT.println("Created file: " + String(filename));
+    DBG_OUTPUT_PORT.println("Created file: " + String(filename)); 
     return true;
   }
   else
@@ -147,16 +147,16 @@ uint32_t deleteOldest(uint64_t spaceRequired)
   time_t t;
   uint32_t nextIndex = 0;
   uint32_t fileCount = 0;
-
+  
   spaceRem = SD_MMC.totalBytes() - SD_MMC.usedBytes();
 
   DBG_OUTPUT_PORT.println("Space Required = " + formatBytes(spaceRequired));
   DBG_OUTPUT_PORT.println("Space Remaining = " + formatBytes(spaceRem));
-
+  
   do
   {
     root = SD_MMC.open("/");
-
+    
     oldestTime = 0;
     fileCount = 0;
     while(file = root.openNextFile())
@@ -182,14 +182,14 @@ uint32_t deleteOldest(uint64_t spaceRequired)
         }
       }
       file.close();
-    }
+    }  
     root.close();
 
     if((spaceRem < spaceRequired) || (fileCount >= MAX_SD_FILES))
     {
       if(oldestFileName.length() > 0)
       {
-
+        
         if(SD_MMC.remove(oldestFileName))
           DBG_OUTPUT_PORT.println("Deleted file: " + oldestFileName);
         else
@@ -340,7 +340,7 @@ void handleRTCSet() {
     server.send(200, "text/json", "{\"result\":\"" + timestamp + "\"}");
     DateTime now = DateTime(timestamp.toInt());
     ext_rtc.adjust(now);
-    int_rtc.setTime(now.unixtime());
+    int_rtc.setTime(now.unixtime());  
     handleRTCNow();
  } else {
     server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
@@ -353,7 +353,7 @@ void handleSdCardDeleteAll() {
       if (haveSDCard) {
         root = SD_MMC.open("/");
         while(file = root.openNextFile())
-        {
+        { 
           String filename = file.name();
           if(SD_MMC.remove("/" + filename))
             DBG_OUTPUT_PORT.println("Deleted file: " + filename);
@@ -367,7 +367,7 @@ void handleSdCardDeleteAll() {
 
 }
 void handleSdCardList() {
-
+  
   if (!haveSDCard) {
     server.send(200, "text/json", "{\"error\": \"No SD Card\"}");
     return;
@@ -400,7 +400,7 @@ void handleSdCardList() {
 
 void handleFileList() {
   String path = "/";
-  if(server.hasArg("dir"))
+  if(server.hasArg("dir")) 
     String path = server.arg("dir");
   //DBG_OUTPUT_PORT.println("handleFileList: " + path);
   File root = SPIFFS.open(path);
@@ -418,11 +418,11 @@ void handleFileList() {
     output += "{\"type\":\"";
     output += file.isDirectory()?"dir":"file";
     output += "\",\"name\":\"";
-    output += String(file.name()).substring(1);
+    output += String(file.name());
     output += "\"}";
     file = root.openNextFile();
   }
-
+  
   output += "]";
   server.send(200, "text/json", output);
 }
@@ -436,7 +436,7 @@ void handleFileList() {
 //     Inverter.read(); //flush all previous output
 //   Inverter.print(cmd);
 //   Inverter.print("\n");
-//   Inverter.readStringUntil('\n'); //consume echo
+//   Inverter.readStringUntil('\n'); //consume echo  
 // }
 
 void uart_readUntill(char val)
@@ -444,7 +444,7 @@ void uart_readUntill(char val)
   int retVal;
   do
   {
-    retVal = uart_read_bytes(UART_NUM_2, uartMessBuff, 1, UART_TIMEOUT);
+    retVal = uart_read_bytes(INVERTER_PORT, uartMessBuff, 1, UART_TIMEOUT);
   }
   while((retVal>0) && (uartMessBuff[0] != val));
 }
@@ -452,7 +452,7 @@ void uart_readUntill(char val)
 bool uart_readStartsWith(const char *val)
 {
   bool retVal = false;
-  int rxBytes = uart_read_bytes(UART_NUM_2, uartMessBuff, strnlen(val,UART_MESSBUF_SIZE), UART_TIMEOUT);
+  int rxBytes = uart_read_bytes(INVERTER_PORT, uartMessBuff, strnlen(val,UART_MESSBUF_SIZE), UART_TIMEOUT);
   if(rxBytes >= strnlen(val,UART_MESSBUF_SIZE))
   {
     if(strncmp(val, uartMessBuff, strnlen(val,UART_MESSBUF_SIZE))==0)
@@ -478,7 +478,7 @@ static void sendCommand(String cmd)
   uart_write_bytes(INVERTER_PORT, cmd.c_str(), cmd.length());
   //Inverter.print("\n");
   uart_write_bytes(INVERTER_PORT, "\n", 1);
-  //Inverter.readStringUntil('\n'); //consume echo
+  //Inverter.readStringUntil('\n'); //consume echo  
   uart_readUntill('\n');
 }
 
@@ -515,7 +515,7 @@ static void handleCommand() {
   do {
     memset(buffer,0,sizeof(buffer));
     //len = Inverter.readBytes(buffer, sizeof(buffer) - 1);
-    len = uart_read_bytes(UART_NUM_2, buffer, sizeof(buffer), UART_TIMEOUT);
+    len = uart_read_bytes(INVERTER_PORT, buffer, sizeof(buffer), UART_TIMEOUT);
     if(len > 0) output.concat(buffer, len);// += buffer;
 
     if (repeat)
@@ -524,7 +524,7 @@ static void handleCommand() {
       //Inverter.print("!");
       uart_write_bytes(INVERTER_PORT, "!", 1);
       //Inverter.readBytes(buffer, 1); //consume "!"
-      uart_read_bytes(UART_NUM_2, buffer, 1, UART_TIMEOUT);
+      uart_read_bytes(INVERTER_PORT, buffer, 1, UART_TIMEOUT);
     }
   } while (len > 0);
   DBG_OUTPUT_PORT.println(output);
@@ -561,7 +561,7 @@ static void handleUpdate()
   size_t PAGE_SIZE_BYTES = 1024;
   int step = server.arg("step").toInt();
   File file = SPIFFS.open(server.arg("file"), "r");
-  int pages = (file.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
+  uint8_t pages = (file.size() + PAGE_SIZE_BYTES - 1) / PAGE_SIZE_BYTES;
   String message;
 
   if (server.hasArg("pagesize"))
@@ -598,10 +598,9 @@ static void handleUpdate()
         uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
       } while (c != 'S');
     }
-
+    
     //Inverter.write(pages);
-    snprintf(uartMessBuff, UART_MESSBUF_SIZE, "%d", pages);
-    uart_write_bytes(INVERTER_PORT, uartMessBuff, strnlen(uartMessBuff, UART_MESSBUF_SIZE));
+    uart_write_bytes(INVERTER_PORT, &pages, 1);
     //while (Inverter.read() != 'P');
     do {
       uart_read_bytes(INVERTER_PORT, &c, 1, UART_TIMEOUT);
@@ -617,7 +616,7 @@ static void handleUpdate()
 
     while (bytesRead < PAGE_SIZE_BYTES)
       buffer[bytesRead++] = 0xff;
-
+    
     uint32_t crc = crc32((uint32_t*)buffer, PAGE_SIZE_BYTES / 4, 0xffffffff);
 
     while (repeat)
@@ -665,11 +664,11 @@ static void handleUpdate()
 static void handleWifi()
 {
   bool updated = true;
-  if(server.hasArg("apSSID") && server.hasArg("apPW"))
+  if(server.hasArg("apSSID") && server.hasArg("apPW")) 
   {
     WiFi.softAP(server.arg("apSSID").c_str(), server.arg("apPW").c_str());
   }
-  else if(server.hasArg("staSSID") && server.hasArg("staPW"))
+  else if(server.hasArg("staSSID") && server.hasArg("staPW")) 
   {
     WiFi.mode(WIFI_AP_STA);
     WiFi.begin(server.arg("staSSID").c_str(), server.arg("staPW").c_str());
@@ -690,7 +689,7 @@ static void handleWifi()
   {
     File file = SPIFFS.open("/wifi-updated.html", "r");
     size_t sent = server.streamFile(file, getContentType("wifi-updated.html"));
-    file.close();
+    file.close();    
   }
 }
 
@@ -724,15 +723,15 @@ void setup(void){
   uart_param_config(INVERTER_PORT, &uart_config);
   uart_set_pin(INVERTER_PORT, INVERTER_TX, INVERTER_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   uart_driver_install(INVERTER_PORT, SDIO_BUFFER_SIZE * 3, 0, 0, NULL, 0); //x3 allows twice card write size to buffer while writes
-  delay(100);
-
+  delay(100); 
+  
 
   //check for external RTC and if present use to initialise on-chip RTC
   if (ext_rtc.begin())
   {
     haveRTC = true;
-    DBG_OUTPUT_PORT.println("External RTC found");
-    if (! ext_rtc.initialized() || ext_rtc.lostPower())
+    DBG_OUTPUT_PORT.println("External RTC found");  
+    if (! ext_rtc.initialized() || ext_rtc.lostPower()) 
     {
       DBG_OUTPUT_PORT.println("RTC is NOT initialized, setting to build time");
       ext_rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -740,19 +739,19 @@ void setup(void){
 
     ext_rtc.start();
     DateTime now = ext_rtc.now();
-    int_rtc.setTime(now.unixtime());
+    int_rtc.setTime(now.unixtime());  
   }
   else
-    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names");
+    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names"); 
 
   //initialise SD card in SDIO mode
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
   if (SD_MMC.begin()) {
-    DBG_OUTPUT_PORT.println("Started SD_MMC");
-    haveSDCard = true;
+    DBG_OUTPUT_PORT.println("Started SD_MMC");    
+    haveSDCard = true;    
   }
   else
-    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
+    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");  
 
   //Start SPI Flash file system
   SPIFFS.begin();
@@ -767,11 +766,11 @@ void setup(void){
   WiFi.setTxPower(WIFI_POWER_19_5dBm);//25); //dbm
   WiFi.begin();
   sta_tick.attach(10, staCheck);
-
+  
   MDNS.begin(host);
 
   updater.setup(&server);
-
+  
   //SERVER INIT
   ArduinoOTA.setHostname(host);
   ArduinoOTA.begin();
@@ -996,7 +995,7 @@ void setup(void){
         addr = 0x08001000;
         addrEnd = 0x0801ffff;
       }
-
+      
       server.sendHeader("Content-Disposition", "attachment; filename = \"" + filename + "\"");
       server.setContentLength(addrEnd - addr + 1); //CONTENT_LENGTH_UNKNOWN
       server.send(200, "application/octet-stream", "");
@@ -1009,7 +1008,7 @@ void setup(void){
         //uint8_t* buff;
         //swd.binDump(addrNext, buff);
         //server.sendContent(String((char *)buff));
-
+        
         uint8_t byte;
         swd.memLoadByte(addrNext, byte);
         server.sendContent(String(byte));
@@ -1066,7 +1065,7 @@ void setup(void){
             }
 
             //digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-
+            
             uint8_t PAGE_SIZE = 6; //webserver max chunks
             for (uint8_t p = 0; p < PAGE_SIZE; p++)
             {
@@ -1096,7 +1095,7 @@ void setup(void){
             }
             swd.flashloaderRUN(addrNext, addrBuffer);
             delay(400); //Must wait for flashloader to finish
-
+ 
             addrBuffer = 0x00000000;
             addrNext = addrIndex;
           }
@@ -1194,7 +1193,7 @@ void binaryLoggingStop()
   uart_flush(INVERTER_PORT);
 }
 
-
+ 
 void loop(void){
   // note: ArduinoOTA.handle() calls MDNS.update();
   server.handleClient();
