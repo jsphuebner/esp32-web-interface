@@ -338,6 +338,8 @@ bool SendJson(WiFiClient client) {
   if (result != DeserializationError::Ok) {
     SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
     updstate == REQUEST_JSON;
+    retries = 50;
+    DBG_OUTPUT_PORT.println("JSON file invalid, re-downloading");
     return false;
   }
 
@@ -350,7 +352,7 @@ bool SendJson(WiFiClient client) {
     if (id > 0) {
       requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xff);
 
-      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+      if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK && rxframe.data[3] == (id & 0xFF)) {
         kv.value()["value"] = ((double)*(int32_t*)&rxframe.data[4]) / 32;
       } else {
         failed++;
