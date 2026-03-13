@@ -112,4 +112,4 @@ You can choose between the following tools:
 ## PlatformIO 
 The flashing steps using the Visual Studio interface.
 
-*[Flashing the ESP32](https://github.com/Tom-evnut/esp32-web-interface/blob/uart-backend/doc/PLATFORMIO_flashing_esp32.md)
+* [Flashing the ESP32](https://github.com/Tom-evnut/esp32-web-interface/blob/uart-backend/doc/PLATFORMIO_flashing_esp32.md)
