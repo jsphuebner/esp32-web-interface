@@ -103,8 +103,13 @@ You can choose between the following tools:
 * [Initial setup](doc/ARDUINO_IDE_setup.md)
 * [Day to day usage](doc/ARDUINO_IDE_usage.md)
 
-## PlatformIO
+## PlatformIO CLI
 [PlatformIO](https://platformio.org/) is a set of tools, among which [PlatformIO Core (CLI)](https://docs.platformio.org/en/latest/core/index.html) is a command line interface that can be used to build many kind of projects. In particular Arduino-based projects like this one.
 (Note: even if PlatformIO provides an IDE, these instructions only target the CLI.)
 * [Initial setup](doc/PLATFORMIO_setup.md)
 * [Day to day usage](doc/PLATFORMIO_usage.md)
+
+## PlatformIO 
+The flashing steps using the Visual Studio interface.
+
+*[Flashing the ESP32](https://github.com/Tom-evnut/esp32-web-interface/blob/uart-backend/doc/PLATFORMIO_flashing_esp32.md)
