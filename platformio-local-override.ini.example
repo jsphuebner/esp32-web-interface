@@ -4,3 +4,8 @@ upload_port = /dev/cu.usbserial-DGAJb113318
 upload_speed = 921600
 monitor_port = /dev/cu.usbserial-DGAJb113318
 monitor_speed = 115200
+
+; Optional local feature overrides
+; [features]
+; enable_rtc = -D ENABLE_RTC=0
+; enable_sdcard = -D ENABLE_SDCARD=0

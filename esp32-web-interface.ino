@@ -51,9 +51,21 @@
 #include <Ticker.h>
 #include <StreamString.h>
 
+#ifndef ENABLE_SDCARD
+#define ENABLE_SDCARD 1
+#endif
+
+#ifndef ENABLE_RTC
+#define ENABLE_RTC 1
+#endif
+
+#if ENABLE_SDCARD
 #include <SD_MMC.h>
+#endif
+#if ENABLE_RTC
 #include "RTClib.h"
 #include <ESP32Time.h>
+#endif
 #include <time.h>
 #include "driver/uart.h"
 #include "src/oi_can.h"
@@ -69,13 +81,13 @@
 #define LED_BUILTIN  5
 #endif
 
-#define RESERVED_SD_SPACE 2000000000
 #define SDIO_BUFFER_SIZE 16384
+#if ENABLE_SDCARD
+#define RESERVED_SD_SPACE 2000000000
 #define FLUSH_WRITES 60 //flush file every 60 blocks
-
 #define MAX_SD_FILES 200
-
 #define LOG_DELAY_VAL 10000
+#endif
 
 //HardwareSerial Inverter(INVERTER_PORT);
 
@@ -92,9 +104,12 @@ HTTPUpdateServer updater;
 File fsUploadFile;
 Ticker sta_tick;
 
+#if ENABLE_RTC
 RTC_PCF8523 ext_rtc;
 ESP32Time int_rtc;
 bool haveRTC = false;
+#endif
+#if ENABLE_SDCARD
 bool haveSDCard = false;
 bool fastLoggingEnabled = true;
 bool fastLoggingActive = false;
@@ -103,8 +118,10 @@ uint16_t indexSDIObuffer = 0;
 uint16_t blockCountSD = 0;
 File dataFile;
 int startLogAttempt = 0;
+#endif
 Config config;
 
+#if ENABLE_SDCARD
 uint32_t deleteOldest(uint64_t spaceRequired);
 
 bool createNextSDFile()
@@ -113,14 +130,18 @@ bool createNextSDFile()
 
   uint32_t nextFileIndex = deleteOldest(RESERVED_SD_SPACE);
 
+#if ENABLE_RTC
   if(haveRTC)
     nextFileIndex = 0; //have a date so restart index from 0 (still needed in case serial stream fails to start)
+#endif
 
   do
   {
+#if ENABLE_RTC
     if(haveRTC)
       snprintf(filename, 50, "/%d-%02d-%02d-%02d-%02d-%02d_%" PRIu32 ".bin", int_rtc.getYear(), int_rtc.getMonth(), int_rtc.getDay(), int_rtc.getHour(), int_rtc.getMinute(), int_rtc.getSecond(), nextFileIndex++);
     else
+#endif
       snprintf(filename, 50, "/%010" PRIu32 ".bin", nextFileIndex++);
   }
   while(SD_MMC.exists(filename));
@@ -158,9 +179,11 @@ uint32_t deleteOldest(uint64_t spaceRequired)
     fileCount = 0;
     while(file = root.openNextFile())
     {
+#if ENABLE_RTC
       if(haveRTC)
         t = file.getLastWrite();
       else
+#endif
       {
         String fname = file.name();
         fname.remove(0,1); //lose starting /
@@ -205,6 +228,7 @@ uint32_t deleteOldest(uint64_t spaceRequired)
 
   return(nextIndex);
 }
+#endif
 
 //format bytes
 String formatBytes(uint64_t bytes){
@@ -251,6 +275,7 @@ bool handleFileRead(String path){
     file.close();
     return true;
   }
+#if ENABLE_SDCARD
   //try download from the sdcard
   if (haveSDCard) {
     DBG_OUTPUT_PORT.print("handleFileRead Trying SD Card: ");
@@ -265,6 +290,7 @@ bool handleFileRead(String path){
     return true;
     }
   }
+#endif
   return false;
 }
 
@@ -320,6 +346,7 @@ void handleFileCreate(){
 }
 
 void handleRTCNow() {
+#if ENABLE_RTC
   String output = "{ \"now\":\"";
   if (haveRTC) {
     DateTime t = ext_rtc.now();
@@ -329,10 +356,13 @@ void handleRTCNow() {
   }
   output += "\"}";
   server.send(200, "text/json", output);
+#else
+  server.send(200, "text/json", "{\"error\":\"RTC support disabled\"}");
+#endif
 }
 
 void handleRTCSet() {
-
+#if ENABLE_RTC
  if (server.hasArg("timestamp")) {
     String timestamp = server.arg("timestamp");
     server.send(200, "text/json", "{\"result\":\"" + timestamp + "\"}");
@@ -344,8 +374,12 @@ void handleRTCSet() {
     server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
 
  }
+#else
+  server.send(500, "text/json", "{\"result\":\"RTC support disabled\"}");
+#endif
 }
 void handleSdCardDeleteAll() {
+#if ENABLE_SDCARD
     if (haveSDCard) {
       File root, file;
       root = SD_MMC.open("/");
@@ -359,10 +393,12 @@ void handleSdCardDeleteAll() {
     }
 
     server.send(200, "text/json", "{\"result\": \"done\"}");
-
+#else
+    server.send(200, "text/json", "{\"error\": \"SD card support disabled\"}");
+#endif
 }
 void handleSdCardList() {
-
+#if ENABLE_SDCARD
   if (!haveSDCard) {
     server.send(200, "text/json", "{\"error\": \"No SD Card\"}");
     return;
@@ -391,6 +427,9 @@ void handleSdCardList() {
   output += "]";
   server.send(200, "text/json", output);
   return;
+#else
+  server.send(200, "text/json", "{\"error\": \"SD card support disabled\"}");
+#endif
 }
 
 void handleFileList() {
@@ -421,6 +460,7 @@ void handleFileList() {
   server.send(200, "text/json", output);
 }
 
+#if ENABLE_SDCARD
 void uart_readUntill(char val)
 {
   int retVal;
@@ -463,6 +503,7 @@ static void sendCommand(String cmd)
   //Inverter.readStringUntil('\n'); //consume echo
   uart_readUntill('\n');
 }
+#endif
 
 static void handleCommand() {
   if(!server.hasArg("cmd")) {server.send(500, "text/plain", "BAD ARGS"); return;}
@@ -715,6 +756,7 @@ void setup(void){
   pinMode(LED_BUILTIN, OUTPUT);
 
   //check for external RTC and if present use to initialise on-chip RTC
+#if ENABLE_RTC
   if (ext_rtc.begin())
   {
     haveRTC = true;
@@ -731,15 +773,22 @@ void setup(void){
   }
   else
     DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names");
+#else
+  DBG_OUTPUT_PORT.println("RTC support disabled at compile time");
+#endif
 
   //initialise SD card in SDIO mode
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
+#if ENABLE_SDCARD
   if (SD_MMC.begin()) {
     DBG_OUTPUT_PORT.println("Started SD_MMC");
     haveSDCard = true;
   }
   else
     DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
+#else
+  DBG_OUTPUT_PORT.println("SD card support disabled at compile time");
+#endif
 
   //Start SPI Flash file system
   SPIFFS.begin();
@@ -815,6 +864,7 @@ void setup(void){
   MDNS.addService("http", "tcp", 80);
 }
 
+#if ENABLE_SDCARD
 void binaryLoggingStart()
 {
   if(createNextSDFile())
@@ -873,6 +923,7 @@ void binaryLoggingStop()
   delay(10);
   uart_flush(INVERTER_PORT);
 }
+#endif
 
 void loop(void){
   // note: ArduinoOTA.handle() calls MDNS.update();
@@ -881,6 +932,7 @@ void loop(void){
 
   OICan::Loop();
 
+#if ENABLE_SDCARD
   if((WiFi.softAPgetStationNum() > 0) || (WiFi.status() == WL_CONNECTED))
   { //have connections so stop logging
     startLogAttempt=0; //restart log attempts when next disconnected
@@ -918,4 +970,5 @@ void loop(void){
       }
     }
   }
+#endif
 }
