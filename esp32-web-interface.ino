@@ -243,7 +243,8 @@ bool handleFileRead(String path){
     if(SPIFFS.exists(pathWithGz))
       path += ".gz";
     File file = SPIFFS.open(path, "r");
-    size_t sent = server.streamFile(file, contentType);
+    server.sendHeader("Cache-Control", "max-age=86400");
+    server.streamFile(file, contentType);
     file.close();
     return true;
   }
@@ -256,7 +257,7 @@ bool handleFileRead(String path){
 
     if (SD_MMC.exists(path)) {
       File file = SD_MMC.open(path, "r");
-      size_t sent = server.streamFile(file, contentType);
+      server.streamFile(file, contentType);
       file.close();
     return true;
     }
@@ -796,7 +797,6 @@ void setup(void){
   });
 
   server.begin();
-  server.client().setNoDelay(1);
 
   MDNS.addService("http", "tcp", 80);
 }
@@ -821,7 +821,7 @@ void binaryLoggingStart()
       uart_set_baudrate(INVERTER_PORT, 2250000);
       uart_write_bytes(INVERTER_PORT, "\n", 1);
       delay(1);
-      uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+      uart_write_bytes(INVERTER_PORT, "binarylogging 0", strlen("binarylogging 0"));
       uart_write_bytes(INVERTER_PORT, "\n", 1);
       uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
       uart_set_baudrate(INVERTER_PORT, 115200);
@@ -835,7 +835,7 @@ void binaryLoggingStop()
 {
   uart_write_bytes(INVERTER_PORT, "\n", 1);
   delay(1);
-  uart_write_bytes(INVERTER_PORT, "binarylogging 0", strnlen("binarylogging 0", UART_MESSBUF_SIZE));
+  uart_write_bytes(INVERTER_PORT, "binarylogging 0", strlen("binarylogging 0"));
   uart_write_bytes(INVERTER_PORT, "\n", 1);
   uart_wait_tx_done(INVERTER_PORT, UART_TIMEOUT);
   uart_set_baudrate(INVERTER_PORT, 115200);

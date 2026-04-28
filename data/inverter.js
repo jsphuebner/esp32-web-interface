@@ -92,6 +92,23 @@ var inverter = {
 		{
 			if (replyFunc) replyFunc(this.responseText);
 		}
+		xmlhttp.onreadystatechange = function() {
+			if (xmlhttp.readyState === XMLHttpRequest.DONE) {
+				console.log(req + ": " + xmlhttp.status);
+				if (xmlhttp.status != 200) {
+					paramsCache.failedFetchCount += 1;
+					if ( paramsCache.failedFetchCount >= 2 && typeof ui !== 'undefined'){
+						ui.showCommunicationErrorBar();
+					}
+				}
+				else {
+					paramsCache.failedFetchCount = 0;
+				}
+				if ( paramsCache.failedFetchCount < 2 && typeof ui !== 'undefined') {
+					ui.hideCommunicationErrorBar();
+				}
+			}
+		}
 
 		if (repeat)
 			req += "&repeat=" + repeat;
@@ -107,8 +124,7 @@ var inverter = {
 
 		inverter.sendCmd(cmd, function(reply) {
 			var params = {};
-			try
-			{
+			try {
 				params = JSON.parse(reply);
 
 				for (var name in params)
@@ -119,19 +135,8 @@ var inverter = {
 					if (name == "version")
 						inverter.firmwareVersion = parseFloat(param.value);
 				}
-				paramsCache.failedFetchCount = 0;
-			}
-			catch(ex)
-			{
-        paramsCache.failedFetchCount += 1;
-        if ( paramsCache.failedFetchCount >= 2 ){
-          ui.showCommunicationErrorBar();
-        }
-			}
-			if ( paramsCache.failedFetchCount < 2 )
-			{
-				ui.hideCommunicationErrorBar();
-			}
+			} catch(ex) {}
+
 			paramsCache.setData(params);
 			if (replyFunc) replyFunc(params);
 		});
@@ -157,10 +162,7 @@ var inverter = {
 			replyFunc(values);
 		};
 
-		if (inverter.firmwareVersion < 3.53 || items.length > 10)
-			inverter.sendCmd("get " + items.join(','), process, repeat);
-		else
-			inverter.sendCmd("stream " + repeat + " " + items.join(','), process);
+		inverter.sendCmd("stream " + repeat + " " + items.join(','), process);
 	},
 
 
