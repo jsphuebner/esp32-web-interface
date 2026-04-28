@@ -51,12 +51,15 @@
 #define SDO_INDEX_SERIAL      0x5000
 #define SDO_INDEX_STRINGS     0x5001
 #define SDO_INDEX_COMMANDS    0x5002
+#define SDO_INDEX_ERROR_NUM   0x5003
+#define SDO_INDEX_ERROR_TIME  0x5004
 #define SDO_CMD_SAVE          0
 #define SDO_CMD_LOAD          1
 #define SDO_CMD_RESET         2
 #define SDO_CMD_DEFAULTS      3
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
+#define MAX_ERROR_LOG_ENTRIES 100
 
 namespace OICan {
 
@@ -671,6 +674,90 @@ double GetValue(String name) {
   else {
     return 0;
   }
+}
+
+static String lookupEnum(const String& unitStr, uint32_t value) {
+  String searchKey = String(value) + "=";
+  int pos = -1;
+
+  if (unitStr.startsWith(searchKey)) {
+    pos = searchKey.length();
+  } else {
+    // Search for ",N=" or ", N=" pattern to avoid partial matches
+    int i = unitStr.indexOf("," + searchKey);
+    if (i >= 0) {
+      pos = i + 1 + searchKey.length();
+    } else {
+      i = unitStr.indexOf(", " + searchKey);
+      if (i >= 0)
+        pos = i + 2 + searchKey.length();
+    }
+  }
+
+  if (pos < 0)
+    return String(value);
+
+  int end = unitStr.indexOf(',', pos);
+  if (end < 0)
+    end = unitStr.length();
+
+  String name = unitStr.substring(pos, end);
+  name.trim();
+  return name.length() > 0 ? name : String(value);
+}
+
+String GetErrors() {
+  // Returns empty string when not IDLE (e.g. busy with firmware update) or when the device reports no errors
+  if (state != IDLE) return "";
+
+  twai_message_t rxframe;
+  String result;
+
+  JsonDocument doc;
+  JsonDocument filter;
+
+  File file = SPIFFS.open(jsonFileName, "r");
+  if (file) {
+    filter["lasterr"]["unit"] = true;
+    deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+  }
+
+  String unitStr;
+  if (!doc["lasterr"]["unit"].isNull())
+    unitStr = doc["lasterr"]["unit"].as<String>();
+
+  for (uint8_t index = 0; index < MAX_ERROR_LOG_ENTRIES; index++) {
+    requestSdoElement(SDO_INDEX_ERROR_TIME, index);
+
+    if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) != ESP_OK)
+      break;
+
+    if (rxframe.data[0] == SDO_ABORT)
+      break;
+
+    uint32_t errorTime;
+    memcpy(&errorTime, &rxframe.data[4], sizeof(errorTime));
+
+    if (errorTime == 0)
+      break;
+
+    requestSdoElement(SDO_INDEX_ERROR_NUM, index);
+
+    if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) != ESP_OK)
+      break;
+
+    if (rxframe.data[0] == SDO_ABORT)
+      break;
+
+    uint32_t errorNum;
+    memcpy(&errorNum, &rxframe.data[4], sizeof(errorNum));
+    String errorName = lookupEnum(unitStr, errorNum);
+
+    result += "[" + String(errorTime) + "]: " + errorName + "\r\n";
+  }
+
+  return result;
 }
 
 int GetNodeId() {
