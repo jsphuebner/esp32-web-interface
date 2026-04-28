@@ -36,6 +36,7 @@ double GetValue(String name);
 bool StartStop(int opmode);
 bool SaveToFlash();
 String StreamValues(String names, int samples);
+String GetErrors();
 int StartUpdate(String fileName);
 int GetCurrentUpdatePage();
 int GetNodeId();

@@ -537,6 +537,13 @@ static void handleCommand() {
       server.send(200, "text/plain", "Start command failed");
     }
   }
+  else if (cmd == "errors") {
+    String errors = OICan::GetErrors();
+    if (errors.length() == 0)
+      server.send(200, "text/plain", "No errors");
+    else
+      server.send(200, "text/plain", errors);
+  }
   else {
     server.send(200, "text/plain", "Unknown command");
   }
