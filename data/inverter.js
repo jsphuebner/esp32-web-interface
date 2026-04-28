@@ -135,7 +135,7 @@ var inverter = {
 					if (name == "version")
 						inverter.firmwareVersion = parseFloat(param.value);
 				}
-			} catch(ex) {}
+			} catch(ex) { console.error('Failed to parse params:', ex); }
 
 			paramsCache.setData(params);
 			if (replyFunc) replyFunc(params);

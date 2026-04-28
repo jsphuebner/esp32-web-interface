@@ -344,7 +344,7 @@ var ui = {
 		versionDiv.innerHTML = "";
 		var firmwareVersion = String(paramsCache.get('version'));
 		versionDiv.innerHTML += "firmware : " + firmwareVersion + "<br>";
-		versionDiv.innerHTML += "web : v2.2"
+		versionDiv.innerHTML += "web : v2.3"
 	},
 
 	/** @brief If beta features are visible, hide them. If hidden, show them. */
@@ -1324,6 +1324,8 @@ var ui = {
 	populateSpotValueDropDown: function()
 	{
 		var select = document.getElementById("add-can-mapping-spot-value-drop-down");
+		// Clear existing options before repopulating to avoid duplicates on refresh
+		while (select.options.length > 0) select.remove(0);
 		inverter.getParamList(function(values) {
 			for (var name in values) {
 				var param = values[name];
