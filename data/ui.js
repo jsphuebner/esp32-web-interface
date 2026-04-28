@@ -142,6 +142,7 @@ var ui = {
 		settings.populateSettingsTab();
 		ui.populateFileList();
 		ui.refreshStatusBox();
+		ui.refreshMessagesBox();
 		ui.getNodeId();
 		ui.setAutoReload(true);
 	},
@@ -151,6 +152,7 @@ var ui = {
 	{
 		ui.updateTables();
 		ui.refreshStatusBox();
+		ui.refreshMessagesBox();
 	},
 
 	getNodeId: function() {
@@ -414,11 +416,6 @@ var ui = {
 		var statusDiv = document.getElementById('top-left');
 
 		var status = paramsCache.get('status');
-
-		if ( status == null ){
-			return;
-		}
-
 		var lasterr = paramsCache.get('lasterr');
 		var udc = paramsCache.get('udc');
 		var tmphs = paramsCache.get('tmphs');
@@ -429,51 +426,60 @@ var ui = {
 		var tbl = document.createElement('table');
 		var tbody = document.createElement('tbody');
 		// status
-		var tr = document.createElement('tr');
-		var td = document.createElement('td');
-		td.appendChild(document.createTextNode('Status'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(status));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (status != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Status'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(status));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// opmode
-		tr = document.createElement('tr');
-	    td = document.createElement('td');
-		td.appendChild(document.createTextNode('Opmode'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(opmode));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (opmode != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Opmode'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(opmode));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// lasterr
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Last error'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(lasterr));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (lasterr != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Last error'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(lasterr));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// udc
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Battery voltage (udc)'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(udc));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (udc != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Battery voltage (udc)'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(udc));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// tmphs
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Inverter temperature'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(tmphs));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
-
+		if (tmphs != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Inverter temperature'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(tmphs));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 
 		tbl.appendChild(tbody);
 		statusDiv.appendChild(tbl);
