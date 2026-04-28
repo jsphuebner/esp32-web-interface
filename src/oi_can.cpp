@@ -666,10 +666,13 @@ double GetValue(String name) {
   requestSdoElement(SDO_INDEX_PARAM_UID | (id >> 8), id & 0xFF);
 
   if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
-    if (rxframe.data[0] == 0x80)
+    if (rxframe.identifier != (uint32_t)(0x580 | _nodeId))
       return 0;
-    else
-      return ((double)*(uint32_t*)&rxframe.data[4]) / 32;
+    if (rxframe.data[0] == SDO_ABORT)
+      return 0;
+    if ((rxframe.data[1] << 8) + rxframe.data[3] != id)
+      return 0;
+    return ((double)*(int32_t*)&rxframe.data[4]) / 32;
   }
   else {
     return 0;
