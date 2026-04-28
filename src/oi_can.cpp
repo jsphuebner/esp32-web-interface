@@ -707,7 +707,7 @@ static String lookupEnum(const String& unitStr, uint32_t value) {
 }
 
 String GetErrors() {
-  // Returns empty string when not IDLE (e.g. busy with firmware update) or when no errors are logged
+  // Returns empty string when not IDLE (e.g. busy with firmware update) or when the device reports no errors
   if (state != IDLE) return "";
 
   twai_message_t rxframe;
@@ -736,7 +736,8 @@ String GetErrors() {
     if (rxframe.data[0] == SDO_ABORT)
       break;
 
-    uint32_t errorTime = *(uint32_t*)&rxframe.data[4];
+    uint32_t errorTime;
+    memcpy(&errorTime, &rxframe.data[4], sizeof(errorTime));
 
     if (errorTime == 0)
       break;
@@ -749,7 +750,8 @@ String GetErrors() {
     if (rxframe.data[0] == SDO_ABORT)
       break;
 
-    uint32_t errorNum = *(uint32_t*)&rxframe.data[4];
+    uint32_t errorNum;
+    memcpy(&errorNum, &rxframe.data[4], sizeof(errorNum));
     String errorName = lookupEnum(unitStr, errorNum);
 
     result += "[" + String(errorTime) + "]: " + errorName + "\r\n";
