@@ -32,13 +32,15 @@ var ui = {
 	// Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
 	categoryVisible: {},
 
+	navbarIsBig: true,
+
 	shrinkNavbar: function() {
-		document.getElementById("navbar").style.width = "80px";
+		document.getElementById("navbar").style.width = "60px";
 		var cw = document.getElementById("content-wrapper");
-		cw.style.left = "80px";
-		cw.style.width = "calc(100% - 80px)";
+		cw.style.left = "60px";
+		cw.style.width = "calc(100% - 60px)";
 		var logo = document.getElementById("logo");
-		logo.style.width = "80px";
+		logo.style.width = "60px";
 		logo.style.height = "50px";
 		// buttons
 		var buttons = document.getElementsByClassName("buttonimg");
@@ -131,10 +133,24 @@ var ui = {
 			}
 		});
 
+		// Pause auto-refresh while the user is editing a parameter field, resume when done
+		var paramsTable = document.getElementById('params');
+		paramsTable.addEventListener('focusin', function(event) {
+			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+				clearInterval(ui.autoRefreshHandle);
+			}
+		});
+		paramsTable.addEventListener('focusout', function(event) {
+			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+				if (document.getElementById('auto-reload-checkbox').checked) {
+					ui.autoRefreshHandle = setInterval(ui.refresh, 2000);
+				}
+			}
+		});
+
 		ui.updateTables();
 		plot.generateChart();
 		ui.parameterDatabaseCheckForUpdates();
-		ui.populateSpotValueDropDown();
 		ui.populateExistingCanMappingTable();
 		wifi.populateWiFiTab();
 		ui.populateFileList();
@@ -229,7 +245,7 @@ var ui = {
 						if (param.enums[param.value])
 						{
 
-						    valInput = '<SELECT onchange="ui.showParamUpdateModal(\'' + name + '\', this.value)">';
+						    valInput = '<SELECT onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)">';
 
 						    for (var idx in param.enums)
 						    {
@@ -253,8 +269,9 @@ var ui = {
 					}
 					else
 					{
+						var step = Number.isInteger(param.value) ? 1 : 0.04;
 						valInput = '<INPUT type="number" min="' + param.minimum + '" max="' + param.maximum +
-							'" step="0.05" value="' + param.value + '" onchange="ui.showParamUpdateModal(\'' + name + '\', this.value)"/>';
+							'" step="' + step + '" value="' + param.value + '" onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)"/>';
 					}
 
 					if (param.i !== undefined)
@@ -295,6 +312,7 @@ var ui = {
 				}
 			}
       ui.populateVersion();
+      ui.populateSpotValueDropDown();
 			document.getElementById("paramDownload").href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(params, null, 2));
 			document.getElementById("spinner-div").style.visibility = "hidden";
 		});
@@ -354,7 +372,7 @@ var ui = {
       // run the poll function every 2 seconds
       if (enable) {
         autoReloadCheckbox.checked = true;
-        ui.autoRefreshHandle = setInterval(ui.refresh, 3000);
+        ui.autoRefreshHandle = setInterval(ui.refresh, 2000);
       }
       else {
         autoReloadCheckbox.checked = false;
@@ -372,6 +390,16 @@ var ui = {
 		document.getElementById('communication-error-bar').style.display = 'none';
 	},
 
+	/** @brief Show green success bar with a message, then auto-hide after a delay */
+	showParamSuccessBar: function(message) {
+		document.getElementById('param-success-bar-text').textContent = message;
+		document.getElementById('param-success-bar').style.display = 'block';
+		clearTimeout(ui.paramSuccessBarTimer);
+		ui.paramSuccessBarTimer = setTimeout(function() {
+			document.getElementById('param-success-bar').style.display = 'none';
+		}, 2000);
+	},
+
 	/**
 	 * ~~~ DASHBOARD ~~~
 	 */
@@ -383,11 +411,6 @@ var ui = {
 		var statusDiv = document.getElementById('top-left');
 
 		var status = paramsCache.get('status');
-
-		if ( status == null ){
-			return;
-		}
-
 		var lasterr = paramsCache.get('lasterr');
 		var udc = paramsCache.get('udc');
 		var tmphs = paramsCache.get('tmphs');
@@ -398,50 +421,60 @@ var ui = {
 		var tbl = document.createElement('table');
 		var tbody = document.createElement('tbody');
 		// status
-		var tr = document.createElement('tr');
-		var td = document.createElement('td');
-		td.appendChild(document.createTextNode('Status'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(status));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (status != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Status'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(status));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// opmode
-		tr = document.createElement('tr');
-	    td = document.createElement('td');
-		td.appendChild(document.createTextNode('Opmode'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(opmode));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (opmode != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Opmode'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(opmode));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// lasterr
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Last error'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(lasterr));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (lasterr != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Last error'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(lasterr));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// udc
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Battery voltage (udc)'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(udc));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (udc != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Battery voltage (udc)'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(udc));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 		// tmphs
-		tr = document.createElement('tr');
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode('Inverter temperature'));
-		tr.appendChild(td);
-		td = document.createElement('td');
-		td.appendChild(document.createTextNode(tmphs));
-		tr.appendChild(td);
-		tbody.appendChild(tr);
+		if (tmphs != null) {
+			var tr = document.createElement('tr');
+			var td = document.createElement('td');
+			td.appendChild(document.createTextNode('Inverter temperature'));
+			tr.appendChild(td);
+			td = document.createElement('td');
+			td.appendChild(document.createTextNode(tmphs));
+			tr.appendChild(td);
+			tbody.appendChild(tr);
+		}
 
 
 		tbl.appendChild(tbody);
@@ -562,13 +595,10 @@ var ui = {
 
 		xmlhttp.onload = function()
 		{
-			// Show popup reporting upload completion
-			modal.emptyModal('small');
-			modal.appendToModal('small', 'File upload complete');
-			modal.showModal('small');
 			// Refresh the list of files on the 'files' page
 			ui.populateFileList();
-			setTimeout(function() { modal.hideModal('small') }, 2000);
+			// Show non-intrusive success notification
+			ui.showParamSuccessBar('File upload complete');
 		}
 
 		xmlhttp.open("POST", "/edit");
@@ -786,6 +816,16 @@ var ui = {
     /**
      * ~~~ PARAMETERS ~~~
      */
+
+    /** @brief Send parameter update to inverter and show result in success bar */
+    sendParameterUpdate: function(param, value)
+    {
+    	var c = 'set ' + param + ' ' + value;
+    	inverter.sendCmd(c, function(reply)
+		{
+			ui.showParamSuccessBar(param + ' = ' + value + ' \u2014 ' + reply.trim());
+		});
+    },
 
     /** @brief Show modal box with the result of parameter update */
     showParamUpdateModal: async function(param, value)
@@ -1268,6 +1308,9 @@ var ui = {
 		        	// cangain
 					var canGainCell = tr.insertCell(-1);
 		        	canGainCell.innerHTML = param.cangain;
+		        	// canoffset value (value offset to add)
+					var canOffsetValCell = tr.insertCell(-1);
+		        	canOffsetValCell.innerHTML = typeof param.canoffset_value !== 'undefined' ? param.canoffset_value : 0;
 		        	// delete button
 					var canDeleteCell = tr.insertCell(-1);
 					var cmd = "inverter.canMapping('del', '" + name + "');ui.populateExistingCanMappingTable();";
@@ -1281,6 +1324,8 @@ var ui = {
 	populateSpotValueDropDown: function()
 	{
 		var select = document.getElementById("add-can-mapping-spot-value-drop-down");
+		// Clear existing options before repopulating to avoid duplicates on refresh
+		while (select.options.length > 0) select.remove(0);
 		inverter.getParamList(function(values) {
 			for (var name in values) {
 				var param = values[name];
