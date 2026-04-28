@@ -625,13 +625,10 @@ var ui = {
 
 		xmlhttp.onload = function()
 		{
-			// Show popup reporting upload completion
-			modal.emptyModal('small');
-			modal.appendToModal('small', 'File upload complete');
-			modal.showModal('small');
 			// Refresh the list of files on the 'files' page
 			ui.populateFileList();
-			setTimeout(function() { modal.hideModal('small') }, 2000);
+			// Show non-intrusive success notification
+			ui.showParamSuccessBar('File upload complete');
 		}
 
 		xmlhttp.open("POST", "/edit");
