@@ -59,6 +59,7 @@
 #define SDO_CMD_DEFAULTS      3
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
+#define MAX_ERROR_LOG_ENTRIES 100
 
 namespace OICan {
 
@@ -706,6 +707,7 @@ static String lookupEnum(const String& unitStr, uint32_t value) {
 }
 
 String GetErrors() {
+  // Returns empty string when not IDLE (e.g. busy with firmware update) or when no errors are logged
   if (state != IDLE) return "";
 
   twai_message_t rxframe;
@@ -715,15 +717,17 @@ String GetErrors() {
   JsonDocument filter;
 
   File file = SPIFFS.open(jsonFileName, "r");
-  filter["lasterr"]["unit"] = true;
-  deserializeJson(doc, file, DeserializationOption::Filter(filter));
-  file.close();
+  if (file) {
+    filter["lasterr"]["unit"] = true;
+    deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+  }
 
   String unitStr;
   if (!doc["lasterr"]["unit"].isNull())
     unitStr = doc["lasterr"]["unit"].as<String>();
 
-  for (uint8_t index = 0; index < 100; index++) {
+  for (uint8_t index = 0; index < MAX_ERROR_LOG_ENTRIES; index++) {
     requestSdoElement(SDO_INDEX_ERROR_TIME, index);
 
     if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) != ESP_OK)
