@@ -322,6 +322,40 @@ tr:hover {
     height: 90vh;
 }
 
+#spotValues {
+    width: auto;
+    max-width: 100%;
+    display: inline-table;
+    vertical-align: top;
+}
+
+#spotValues td,
+#spotValues th {
+    padding: 7px 12px;
+}
+
+#spotValues th:first-child,
+#spotValues td:first-child {
+    width: 24px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+#spotValues th:nth-child(2),
+#spotValues td:nth-child(2) {
+    min-width: 24rem;
+}
+
+#spotValues th:nth-child(3),
+#spotValues td:nth-child(3) {
+    min-width: 12rem;
+}
+
+#spotValues th:nth-child(4),
+#spotValues td:nth-child(4) {
+    min-width: 6rem;
+}
+
 /* content */
 
 #content {

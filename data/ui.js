@@ -23,16 +23,19 @@ var ui = {
     // The API endpoint to query to get firmware release available in Github
 	githubFirmwareReleaseURL: 'https://api.github.com/repos/jsphuebner/stm32-sine/releases',
 
-  //Handle for auto refresh interval
+	//Handle for auto refresh interval
   autoRefreshHandle: 0,
+  refreshPending: false,
 
 	// temp variable to store updates from Parameter Database
 	paramUpdates: "",
+	webVersion: "2.2.4",
 
 	// Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
 	categoryVisible: {},
 
 	navbarIsBig: true,
+	activePage: "dashboard",
 
   shrinkNavbar: function() {
 		document.getElementById("navbar").style.width = "60px";
@@ -105,6 +108,7 @@ var ui = {
 	    // show selected tab
 	    document.getElementById(pageName).style.display = "flex";
 	    elmnt.style.backgroundColor = color;
+		ui.activePage = pageName;
 
 	    // Right menu has nothing in it for spot values, so hide it
 	    var mainRights = document.getElementsByClassName("main-right");
@@ -165,9 +169,18 @@ var ui = {
 	/** @brief automatically update data on the UI */
 	refresh: function()
 	{
-		ui.updateTables();
-		ui.refreshStatusBox();
-		ui.refreshMessagesBox();
+		if (ui.refreshPending) {
+			return;
+		}
+
+		if (ui.activePage === "spotvalues") {
+			ui.refreshSpotValues();
+		}
+		else {
+			ui.updateTables();
+			ui.refreshStatusBox();
+			ui.refreshMessagesBox();
+		}
 	},
 
 	getNodeId: function() {
@@ -225,6 +238,7 @@ var ui = {
 		}
 
 		document.getElementById("spinner-div").style.visibility = "visible";
+		ui.refreshPending = true;
 
 		inverter.getParamList(function(values)
 		{
@@ -232,6 +246,8 @@ var ui = {
 			var tableSpot = document.getElementById("spotValues");
 			var lastCategory = "";
 			var params = {};
+			var spotValueGroups = {};
+			var spotValueGroupOrder = [];
 
 			while (tableParam.rows.length > 1) tableParam.deleteRow(1);
 			while (tableSpot.rows.length > 1) tableSpot.deleteRow(1);
@@ -313,8 +329,13 @@ var ui = {
 				}
 				else
 				{
-					var checkHtml = '<INPUT type="checkbox" data-name="' + name + '" data-axis="left" /> l';
-					checkHtml += ' <INPUT type="checkbox" data-name="' + name + '" data-axis="right" /> r';
+					var separatorIndex = name.indexOf('_');
+					var spotCategory = separatorIndex > 0 ? name.substring(0, separatorIndex) : "General";
+					var spotName = separatorIndex > 0 ? name.substring(separatorIndex + 1) : name;
+					if (!spotValueGroups[spotCategory]) {
+						spotValueGroups[spotCategory] = [];
+						spotValueGroupOrder.push(spotCategory);
+					}
 					var unit = param.unit;
 
 					if (param.enums)
@@ -340,7 +361,32 @@ var ui = {
 						display = param.value;
 					}
 
-					ui.addRow(tableSpot, [ nameWithTooltip, display, unit ], true);
+					var spotNameWithTooltip = nameWithTooltip;
+					if (spotNameWithTooltip === name) {
+						spotNameWithTooltip = spotName;
+					} else {
+						spotNameWithTooltip = "<div class=\"tooltip\">" + spotName + "<span class=\"tooltiptext\">" + docstring + "</span></div>";
+					}
+
+					spotValueGroups[spotCategory].push({
+						name: name,
+						displayName: spotNameWithTooltip,
+						displayValue: display,
+						unit: unit
+					});
+				}
+			}
+
+			for (var groupIdx = 0; groupIdx < spotValueGroupOrder.length; groupIdx++)
+			{
+				var groupName = spotValueGroupOrder[groupIdx];
+				ui.addRow(tableSpot, [ "<BUTTON style=\"background: none; border: none; font-weight: bold;\">- " + groupName + "</BUTTON>" ], true);
+
+				for (var itemIdx = 0; itemIdx < spotValueGroups[groupName].length; itemIdx++)
+				{
+					var spotValue = spotValueGroups[groupName][itemIdx];
+					var spotRow = ui.addRow(tableSpot, [ "", spotValue.displayName, spotValue.displayValue, spotValue.unit ], true);
+					spotRow.dataset.spotValue = spotValue.name;
 				}
 			}
       ui.populateVersion();
@@ -348,7 +394,12 @@ var ui = {
 
 			document.getElementById("paramDownload").href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(params, null, 2));
 			document.getElementById("spinner-div").style.visibility = "hidden";
+			ui.refreshPending = false;
 		});
+
+		if (!inverter.paramListRequestPending) {
+			ui.refreshPending = false;
+		}
 	},
 
 	/** @brief Adds row to a table
@@ -368,6 +419,8 @@ var ui = {
 			cell.colSpan = colSpan;
 			cell.innerHTML = content[i];
 		}
+
+		return tr;
 	},
 
 	/** @brief fill out version box in the bottom left corner of the screen */
@@ -377,7 +430,7 @@ var ui = {
 		versionDiv.innerHTML = "";
 		var firmwareVersion = String(paramsCache.get('version'));
 		versionDiv.innerHTML += "firmware : " + firmwareVersion + "<br>";
-		versionDiv.innerHTML += "web : v2.2"
+		versionDiv.innerHTML += "web : v" + ui.webVersion;
 	},
 
 	/** @brief If beta features are visible, hide them. If hidden, show them. */
@@ -1114,6 +1167,48 @@ var ui = {
 	/**
 	 * ~~~ SPOT VALUES ~~~
 	 */
+
+	getSelectedSpotValueNames: function()
+	{
+		var selected = [];
+		var rows = document.querySelectorAll('#spotBody tr[data-spot-value]');
+		for (var i = 0; i < rows.length; i++)
+		{
+			selected.push(rows[i].dataset.spotValue);
+		}
+		return selected;
+	},
+
+	refreshSpotValues: function()
+	{
+		var selected = ui.getSelectedSpotValueNames();
+		if (!selected.length) {
+			return;
+		}
+
+		inverter.getValues(selected, 1, function(values)
+		{
+			for (var i = 0; i < selected.length; i++)
+			{
+				var name = selected[i];
+				if (!values[name] || !values[name].length) {
+					continue;
+				}
+				var entry = paramsCache.getEntry(name);
+				if (entry) {
+					entry.value = values[name][0];
+				}
+				var displayValue = values[name][0];
+				if (entry && entry.enums && entry.enums[displayValue] !== undefined) {
+					displayValue = entry.enums[displayValue];
+				}
+				var row = document.querySelector('#spotBody tr[data-spot-value="' + name + '"]');
+				if (row && row.cells.length > 2) {
+					row.cells[2].textContent = displayValue;
+				}
+			}
+		});
+	},
 
 
 	/**

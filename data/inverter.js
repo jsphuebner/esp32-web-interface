@@ -67,9 +67,10 @@ var paramsCache = {
 var inverter = {
 
   firmwareVersion: 0,
+  paramListRequestPending: false,
 
   /** @brief send a command to the inverter */
-  sendCmd: function(cmd, replyFunc, repeat)
+  sendCmd: function(cmd, replyFunc, repeat, doneFunc)
   {
     var xmlhttp=new XMLHttpRequest();
     var req = "/cmd?cmd=" + cmd;
@@ -92,6 +93,7 @@ var inverter = {
         if ( paramsCache.failedFetchCount < 2 && typeof ui !== 'undefined') {
           ui.hideCommunicationErrorBar();
         }
+        if (doneFunc) doneFunc(xmlhttp.status);
       }
     }
 
@@ -105,6 +107,11 @@ var inverter = {
   /** @brief get the params from the inverter */
   getParamList: function(replyFunc, includeHidden)
   {
+    if (inverter.paramListRequestPending) {
+      return false;
+    }
+
+    inverter.paramListRequestPending = true;
     var cmd = includeHidden ? "json hidden" : "json";
 
     inverter.sendCmd(cmd, function(reply) {
@@ -124,7 +131,14 @@ var inverter = {
 
       paramsCache.setData(params);
       if (replyFunc) replyFunc(params);
+    }, undefined, function() {
+      inverter.paramListRequestPending = false;
+      if (typeof ui !== 'undefined') {
+        ui.refreshPending = false;
+      }
     });
+
+    return true;
   },
 
   /** @brief get CAN mapping from the inverter - only meant for wifi <-> can bridge */
