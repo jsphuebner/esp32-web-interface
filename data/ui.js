@@ -301,8 +301,9 @@ var ui = {
 					}
 					else
 					{
+						var step = Number.isInteger(param.value) ? 1 : 0.04;
 						valInput = '<INPUT type="number" min="' + param.minimum + '" max="' + param.maximum +
-							'" step="0.05" value="' + param.value + '" onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)"/>';
+							'" step="' + step + '" value="' + param.value + '" onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)"/>';
 					}
 
 					if (param.i !== undefined)
