@@ -51,6 +51,14 @@
 #include <Ticker.h>
 #include <StreamString.h>
 
+#ifndef ENABLE_SDCARD
+#define ENABLE_SDCARD 1
+#endif
+
+#ifndef ENABLE_RTC
+#define ENABLE_RTC 1
+#endif
+
 #include <SD_MMC.h>
 #include "RTClib.h"
 #include <ESP32Time.h>
@@ -69,12 +77,10 @@
 #define LED_BUILTIN  5
 #endif
 
-#define RESERVED_SD_SPACE 2000000000
 #define SDIO_BUFFER_SIZE 16384
+#define RESERVED_SD_SPACE 2000000000
 #define FLUSH_WRITES 60 //flush file every 60 blocks
-
 #define MAX_SD_FILES 200
-
 #define LOG_DELAY_VAL 10000
 
 //HardwareSerial Inverter(INVERTER_PORT);
@@ -94,8 +100,8 @@ Ticker sta_tick;
 
 RTC_PCF8523 ext_rtc;
 ESP32Time int_rtc;
-bool haveRTC = false;
-bool haveSDCard = false;
+bool haveRTC = ENABLE_RTC != 0;
+bool haveSDCard = ENABLE_SDCARD != 0;
 bool fastLoggingEnabled = true;
 bool fastLoggingActive = false;
 uint8_t SDIObuffer[SDIO_BUFFER_SIZE];
@@ -332,14 +338,15 @@ void handleRTCNow() {
 }
 
 void handleRTCSet() {
-
- if (server.hasArg("timestamp")) {
+ if (haveRTC && server.hasArg("timestamp")) {
     String timestamp = server.arg("timestamp");
     server.send(200, "text/json", "{\"result\":\"" + timestamp + "\"}");
     DateTime now = DateTime(timestamp.toInt());
     ext_rtc.adjust(now);
     int_rtc.setTime(now.unixtime());
     handleRTCNow();
+ } else if (!haveRTC) {
+    server.send(500, "text/json", "{\"result\":\"No RTC\"}");
  } else {
     server.send(500, "text/json", "{\"result\":\"timestamp missing\"}");
 
@@ -359,10 +366,8 @@ void handleSdCardDeleteAll() {
     }
 
     server.send(200, "text/json", "{\"result\": \"done\"}");
-
 }
 void handleSdCardList() {
-
   if (!haveSDCard) {
     server.send(200, "text/json", "{\"error\": \"No SD Card\"}");
     return;
@@ -722,31 +727,43 @@ void setup(void){
   pinMode(LED_BUILTIN, OUTPUT);
 
   //check for external RTC and if present use to initialise on-chip RTC
-  if (ext_rtc.begin())
+  if (haveRTC)
   {
-    haveRTC = true;
-    DBG_OUTPUT_PORT.println("External RTC found");
-    if (! ext_rtc.initialized() || ext_rtc.lostPower())
+    if (ext_rtc.begin())
     {
-      DBG_OUTPUT_PORT.println("RTC is NOT initialized, setting to build time");
-      ext_rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    }
+      DBG_OUTPUT_PORT.println("External RTC found");
+      if (! ext_rtc.initialized() || ext_rtc.lostPower())
+      {
+        DBG_OUTPUT_PORT.println("RTC is NOT initialized, setting to build time");
+        ext_rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+      }
 
-    ext_rtc.start();
-    DateTime now = ext_rtc.now();
-    int_rtc.setTime(now.unixtime());
+      ext_rtc.start();
+      DateTime now = ext_rtc.now();
+      int_rtc.setTime(now.unixtime());
+    }
+    else
+    {
+      haveRTC = false;
+      DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names");
+    }
   }
   else
-    DBG_OUTPUT_PORT.println("No RTC found, defaulting to sequential file names");
+    DBG_OUTPUT_PORT.println("RTC support disabled at compile time");
 
   //initialise SD card in SDIO mode
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
-  if (SD_MMC.begin()) {
-    DBG_OUTPUT_PORT.println("Started SD_MMC");
-    haveSDCard = true;
+  if (haveSDCard) {
+    if (SD_MMC.begin()) {
+      DBG_OUTPUT_PORT.println("Started SD_MMC");
+    }
+    else {
+      haveSDCard = false;
+      DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
+    }
   }
   else
-    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
+    DBG_OUTPUT_PORT.println("SD card support disabled at compile time");
 
   //Start SPI Flash file system
   SPIFFS.begin();
