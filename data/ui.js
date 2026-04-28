@@ -134,6 +134,21 @@ var ui = {
 			}
 		});
 
+		// Pause auto-refresh while the user is editing a parameter field, resume when done
+		var paramsTable = document.getElementById('params');
+		paramsTable.addEventListener('focusin', function(event) {
+			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+				clearInterval(ui.autoRefreshHandle);
+			}
+		});
+		paramsTable.addEventListener('focusout', function(event) {
+			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+				if (document.getElementById('auto-reload-checkbox').checked) {
+					ui.autoRefreshHandle = setInterval(ui.refresh, 2000);
+				}
+			}
+		});
+
 		ui.updateTables();
 		plot.generateChart();
 		ui.parameterDatabaseCheckForUpdates();
@@ -262,7 +277,7 @@ var ui = {
 						if (param.enums[param.value])
 						{
 
-						    valInput = '<SELECT onchange="ui.showParamUpdateModal(\'' + name + '\', this.value)">';
+						    valInput = '<SELECT onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)">';
 
 						    for (var idx in param.enums)
 						    {
@@ -287,7 +302,7 @@ var ui = {
 					else
 					{
 						valInput = '<INPUT type="number" min="' + param.minimum + '" max="' + param.maximum +
-							'" step="0.05" value="' + param.value + '" onchange="ui.showParamUpdateModal(\'' + name + '\', this.value)"/>';
+							'" step="0.05" value="' + param.value + '" onchange="ui.sendParameterUpdate(\'' + name + '\', this.value)"/>';
 					}
 
 					if (param.i !== undefined)
@@ -407,6 +422,16 @@ var ui = {
 	/** @brief Hide notification bar */
 	hideCommunicationErrorBar: function() {
 		document.getElementById('communication-error-bar').style.display = 'none';
+	},
+
+	/** @brief Show green success bar with a message, then auto-hide after a delay */
+	showParamSuccessBar: function(message) {
+		document.getElementById('param-success-bar-text').textContent = message;
+		document.getElementById('param-success-bar').style.display = 'block';
+		clearTimeout(ui.paramSuccessBarTimer);
+		ui.paramSuccessBarTimer = setTimeout(function() {
+			document.getElementById('param-success-bar').style.display = 'none';
+		}, 2000);
 	},
 	/**
 	 * ~~~ DASHBOARD ~~~
@@ -824,19 +849,14 @@ var ui = {
      * ~~~ PARAMETERS ~~~
      */
 
-    /** @brief Show modal box with the result of parameter update */
-    showParamUpdateModal: async function(param, value)
+    /** @brief Send parameter update to inverter and show result in success bar */
+    sendParameterUpdate: function(param, value)
     {
     	var c = 'set ' + param + ' ' + value;
-    	modal.emptyModal('small');
-    	modal.showModal('small');
-    	modal.appendToModal('small', 'Setting ' + param + ' to ' + value + "<br>");
     	inverter.sendCmd(c, function(reply)
 		{
-			modal.appendToModal('small', reply);
+			ui.showParamSuccessBar(param + ' = ' + value + ' \u2014 ' + reply.trim());
 		});
-		await sleep(2000);
-		modal.hideModal('small');
     },
 
     /** @brief Show confirmation that params have been saved */
