@@ -175,6 +175,7 @@ var ui = {
     {
         document.getElementById("nodeid").value = this.responseText.split(',')[0];
         document.getElementById("canspeed").value = this.responseText.split(',')[1];
+        inverter.canMapping(ui.populateExistingCanMappingTable);
     }
 
     xmlhttp.open("GET", "/nodeid?id=" + document.getElementById("nodeid").value + "&canspeed=" + document.getElementById("canspeed").value, true);
