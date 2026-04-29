@@ -34,6 +34,12 @@ var ui = {
 
 	navbarIsBig: true,
 
+	// When true, fetch all parameters including hidden ones (via 'json hidden')
+	developerMode: false,
+
+	// Click counter used to activate developer mode (5 clicks on the version box)
+	developerModeClickCount: 0,
+
   shrinkNavbar: function() {
 		document.getElementById("navbar").style.width = "60px";
 		var cw = document.getElementById("content-wrapper");
@@ -83,6 +89,28 @@ var ui = {
 		} else {
 			ui.growNavbar();
 			ui.navbarIsBig = true;
+		}
+	},
+
+	/** @brief Secret click counter on the version box: 5 clicks toggle developer mode,
+	 *         which shows all parameters including hidden ones (via 'json hidden').
+	 *         The counter resets if more than 2 seconds pass between clicks. */
+	onVersionClick: function()
+	{
+		clearTimeout(ui.developerModeClickTimer);
+		ui.developerModeClickCount++;
+		if (ui.developerModeClickCount >= 5)
+		{
+			ui.developerModeClickCount = 0;
+			ui.developerMode = !ui.developerMode;
+			ui.showParamSuccessBar("Developer mode " + (ui.developerMode ? "ON" : "OFF"));
+			ui.updateTables();
+		}
+		else
+		{
+			ui.developerModeClickTimer = setTimeout(function() {
+				ui.developerModeClickCount = 0;
+			}, 2000);
 		}
 	},
 
@@ -222,7 +250,6 @@ var ui = {
 
 		inverter.getParamList(function(values)
 		{
-
 			var tableSpot = document.getElementById("spotValues");
 			var lastCategory = "";
 			var params = {};
@@ -342,7 +369,7 @@ var ui = {
 
 			document.getElementById("paramDownload").href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(params, null, 2));
 			document.getElementById("spinner-div").style.visibility = "hidden";
-		});
+		}, ui.developerMode);
 	},
 
 	/** @brief Adds row to a table
