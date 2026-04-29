@@ -563,6 +563,9 @@ static void handleCanMap() {
   if (server.hasArg("add")) {
     res = OICan::AddCanMapping(server.arg("add"));
   }
+  else if (server.hasArg("clear")) {
+    res = OICan::ClearCanMapping();
+  }
   else if (server.hasArg("remove")) {
     res = OICan::RemoveCanMapping(server.arg("remove"));
   }
