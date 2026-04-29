@@ -89,6 +89,10 @@ var ui = {
 	/** @brief switch to a different page tab */
 	openPage: function(pageName, elmnt, color)
 	{
+	    if (pageName == "canmapping") {
+    	    inverter.canMapping(ui.populateExistingCanMappingTable);
+    	    ui.setAutoReload(false);
+    	}
 		// hide all tabs
 	    var i, tabdiv, tablinks;
 	    tabdiv = document.getElementsByClassName("tabdiv");
@@ -138,14 +142,7 @@ var ui = {
 		var paramsTable = document.getElementById('params');
 		paramsTable.addEventListener('focusin', function(event) {
 			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
-				clearInterval(ui.autoRefreshHandle);
-			}
-		});
-		paramsTable.addEventListener('focusout', function(event) {
-			if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
-				if (document.getElementById('auto-reload-checkbox').checked) {
-					ui.autoRefreshHandle = setInterval(ui.refresh, 2000);
-				}
+				ui.setAutoReload(false);
 			}
 		});
 
@@ -190,9 +187,6 @@ var ui = {
     {
         document.getElementById("nodeid").value = this.responseText.split(',')[0];
         document.getElementById("canspeed").value = this.responseText.split(',')[1];
-        inverter.getParamList(function() {
-            inverter.canMapping(ui.populateExistingCanMappingTable);
-        });
     }
 
     xmlhttp.open("GET", "/nodeid?id=" + document.getElementById("nodeid").value + "&canspeed=" + document.getElementById("canspeed").value, true);
@@ -1289,13 +1283,15 @@ var ui = {
 	/** @brief Populate the 'spot value' drop-down on the 'Add new CAN mapping' form */
 	populateSpotValueDropDown: function()	{
 		var select = document.getElementById("add-can-mapping-spot-value-drop-down");
-    for (var name in paramsCache.getData()) {
-      var param = paramsCache.getEntry(name);
-      var el = document.createElement("option");
-      el.textContent = name;
-      el.value = param.id;
-      select.appendChild(el);
-    }
+		var len = select.options.length
+		for (var i = 0; i < len; i++) { select.options.remove(0); }
+        for (var name in paramsCache.getData()) {
+          var param = paramsCache.getEntry(name);
+          var el = document.createElement("option");
+          el.textContent = name;
+          el.value = param.id;
+          select.appendChild(el);
+        }
 	},
 
 
