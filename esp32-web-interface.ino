@@ -476,8 +476,9 @@ static void handleCommand() {
 
   digitalWrite(LED_BUILTIN, HIGH);
 
-  if (cmd == "json") {
-    if (!OICan::SendJson(server.client()))
+  if (cmd == "json" || cmd == "json hidden") {
+    bool includeHidden = cmd == "json hidden";
+    if (!OICan::SendJson(server.client(), includeHidden))
       server.send(500, "text/plain", "CAN communication error");
   }
   else if (cmd.startsWith("set")) {
@@ -501,6 +502,41 @@ static void handleCommand() {
       case OICan::CommError:
         server.send(200, "text/plain", "CAN communication error");
         break;
+    }
+  }
+  else if (cmd.startsWith("flag")) {
+    String str(cmd);
+    int nameStart = str.indexOf(' ');
+    int flagStart = str.indexOf(' ', nameStart + 1);
+
+    if (nameStart < 0 || flagStart < 0) {
+      server.send(200, "text/plain", "Usage: flag <parameter> [!]hidden");
+    }
+    else {
+      String name = str.substring(nameStart + 1, flagStart);
+      String flagName = str.substring(flagStart + 1);
+      flagName.trim();
+
+      // Prefixes '!', '~', '/' all mean "clear flag" (matches libopeninv terminal syntax)
+      bool clearFlag = flagName.startsWith("!") || flagName.startsWith("~") || flagName.startsWith("/");
+      if (clearFlag) flagName = flagName.substring(1);
+
+      if (flagName == "hidden") {
+        switch (OICan::SetFlag(name, clearFlag)) {
+          case OICan::Ok:
+            server.send(200, "text/plain", "Flag change OK");
+            break;
+          case OICan::UnknownIndex:
+            server.send(200, "text/plain", "Unknown parameter");
+            break;
+          default:
+            server.send(200, "text/plain", "CAN communication error");
+            break;
+        }
+      }
+      else {
+        server.send(200, "text/plain", "Unknown flag");
+      }
     }
   }
   else if (cmd.startsWith("stream")) {

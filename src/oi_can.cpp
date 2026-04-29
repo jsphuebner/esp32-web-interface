@@ -45,6 +45,7 @@
 
 #define SDO_INDEX_PARAMS      0x2000
 #define SDO_INDEX_PARAM_UID   0x2100
+#define SDO_INDEX_PARAM_FLAGS 0x2200
 #define SDO_INDEX_MAP_TX      0x3000
 #define SDO_INDEX_MAP_RX      0x3001
 #define SDO_INDEX_MAP_RD      0x3100
@@ -60,6 +61,7 @@
 #define SDO_CMD_CLEAR_CAN     4
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
+#define PARAM_FLAG_HIDDEN     1
 #define MAX_ERROR_LOG_ENTRIES 100
 
 namespace OICan {
@@ -73,6 +75,7 @@ static State state;
 static UpdState updstate;
 static uint32_t serial[4]; //contains id sum as well
 static char jsonFileName[20];
+static char hiddenJsonFileName[22];
 static twai_message_t tx_frame;
 static File updateFile;
 static int currentPage = 0;
@@ -156,6 +159,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
         }
         else {
           sprintf(jsonFileName, "/%" PRIx32 ".json", serial[3]);
+          sprintf(hiddenJsonFileName, "/%" PRIx32 "_h.json", serial[3]);
           DBG_OUTPUT_PORT.printf("Got Serial Number %" PRIX32 ":%" PRIX32 ":%" PRIX32 ":%" PRIX32 "\r\n", serial[0], serial[1], serial[2], serial[3]);
 
           if (SPIFFS.exists(jsonFileName)) {
@@ -343,20 +347,82 @@ int GetCurrentUpdatePage() {
   return currentPage;
 }
 
-bool SendJson(WiFiClient client) {
+/** @brief Downloads a JSON parameter list from the inverter via segmented SDO upload.
+ *  stringIndex 0 = normal (non-hidden) parameters, 1 = all parameters including hidden.
+ *  The result is stored in the given filename on SPIFFS.
+ *  Returns true on success. */
+static bool downloadJsonFromDevice(uint8_t stringIndex, const char* filename) {
+  twai_message_t rxframe;
+  bool toggleBit = false;
+
+  File file = SPIFFS.open(filename, "w+");
+  if (!file) return false;
+
+  requestSdoElement(SDO_INDEX_STRINGS, stringIndex);
+
+  while (true) {
+    if (twai_receive(&rxframe, pdMS_TO_TICKS(200)) != ESP_OK) {
+      DBG_OUTPUT_PORT.println("Timeout downloading JSON");
+      file.close();
+      SPIFFS.remove(filename);
+      return false;
+    }
+
+    if (rxframe.data[0] == SDO_ABORT) {
+      DBG_OUTPUT_PORT.println("SDO abort while downloading JSON");
+      file.close();
+      SPIFFS.remove(filename);
+      return false;
+    }
+
+    // Initial upload response – request first data segment
+    if ((rxframe.data[0] & SDO_READ) == SDO_READ) {
+      requestNextSegment(toggleBit);
+      continue;
+    }
+
+    // Last segment: bit 0 (SDO_SIZE_SPECIFIED) set, top bit 6 clear
+    if ((rxframe.data[0] & SDO_SIZE_SPECIFIED) && (rxframe.data[0] & SDO_READ) == 0) {
+      int size = 7 - ((rxframe.data[0] >> 1) & 0x7);
+      file.write(&rxframe.data[1], size);
+      file.close();
+      DBG_OUTPUT_PORT.printf("JSON download complete (%s)\r\n", filename);
+      return true;
+    }
+
+    // Regular segment
+    file.write(&rxframe.data[1], 7);
+    toggleBit = !toggleBit;
+    requestNextSegment(toggleBit);
+  }
+}
+
+bool SendJson(WiFiClient client, bool includeHidden) {
   if (state != IDLE) return false;
+
+  const char* fname = includeHidden ? hiddenJsonFileName : jsonFileName;
+
+  // Download hidden JSON on demand if not yet cached
+  if (includeHidden && !SPIFFS.exists(hiddenJsonFileName)) {
+    DBG_OUTPUT_PORT.println("Downloading hidden JSON");
+    if (!downloadJsonFromDevice(1, hiddenJsonFileName)) {
+      return false;
+    }
+  }
 
   JsonDocument doc;
   twai_message_t rxframe;
 
-  File file = SPIFFS.open(jsonFileName, "r");
+  File file = SPIFFS.open(fname, "r");
   auto result = deserializeJson(doc, file);
   file.close();
 
   if (result != DeserializationError::Ok) {
-    SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
-    updstate = REQUEST_JSON;
-    retries = 50;
+    SPIFFS.remove(fname);
+    if (!includeHidden) {
+      updstate = REQUEST_JSON;
+      retries = 50;
+    }
     DBG_OUTPUT_PORT.println("JSON file invalid, re-downloading");
     return false;
   }
@@ -784,6 +850,28 @@ String GetErrors() {
   }
 
   return result;
+}
+
+SetResult SetFlag(String name, bool clearFlag) {
+  if (state != IDLE) return CommError;
+
+  twai_message_t rxframe;
+  int id = getId(name);
+
+  if (id <= 0) return UnknownIndex;
+
+  uint32_t flagValue = clearFlag ? 0 : PARAM_FLAG_HIDDEN;
+  setValueSdo(SDO_INDEX_PARAM_FLAGS | (id >> 8), id & 0xFF, flagValue);
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+    if (rxframe.data[0] == SDO_RESPONSE_DOWNLOAD)
+      return Ok;
+    else if (rxframe.data[0] == SDO_ABORT)
+      return UnknownIndex;
+    else
+      return CommError;
+  }
+  return CommError;
 }
 
 int GetNodeId() {
