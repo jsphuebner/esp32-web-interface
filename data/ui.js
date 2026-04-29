@@ -1221,6 +1221,29 @@ var ui = {
 		modal.hideModal('can-mapping');
 	},
 
+	/** @brief Ask for confirmation before clearing all CAN mappings */
+	showClearCanMappingConfirmationModal: function()
+	{
+		modal.emptyModal('small');
+		var msg = "<p>Are you sure you want to clear all CAN mappings?</p>";
+		msg += "<div style=\"display:flex;\">";
+		msg += "<button onclick=\"ui.clearCanMapping();\"><img class=\"buttonimg\" src=\"/icon-trash.png\">Clear mappings</button>";
+		msg += "<button onclick=\"modal.hideModal('small');\"><img class=\"buttonimg\" src=\"/icon-x-square.png\">Cancel</button>";
+		msg += "</div>";
+		modal.appendToModal('small', msg);
+		modal.showModal('small');
+	},
+
+	/** @brief Clear all CAN mappings via direct SDO and reload the table */
+	clearCanMapping: function()
+	{
+		modal.hideModal('small');
+		inverter.clearCanMapping(function(values) {
+			ui.populateExistingCanMappingTable(values);
+			ui.showParamSuccessBar('CAN mappings cleared');
+		});
+	},
+
 	/** @brief Populate the table of existing CAN mappings */
 	populateExistingCanMappingTable: function(values) {
 		var existigCanMappingTable = document.getElementById("existingCanMappingTable");

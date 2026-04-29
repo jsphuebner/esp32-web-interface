@@ -57,6 +57,7 @@
 #define SDO_CMD_LOAD          1
 #define SDO_CMD_RESET         2
 #define SDO_CMD_DEFAULTS      3
+#define SDO_CMD_CLEAR_CAN     4
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
 #define MAX_ERROR_LOG_ENTRIES 100
@@ -555,6 +556,31 @@ SetResult RemoveCanMapping(String json){
       return UnknownIndex;
     }
   }
+  DBG_OUTPUT_PORT.println("Comm Error");
+  return CommError;
+}
+
+SetResult ClearCanMapping() {
+  if (state != IDLE) return CommError;
+
+  twai_message_t rxframe;
+
+  setValueSdo(SDO_INDEX_COMMANDS, SDO_CMD_CLEAR_CAN, 0U);
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(200)) == ESP_OK) {
+    if (rxframe.data[0] == SDO_WRITE_REPLY &&
+        rxframe.data[1] == 0x02 &&
+        rxframe.data[2] == 0x50 &&
+        rxframe.data[3] == SDO_CMD_CLEAR_CAN) {
+      DBG_OUTPUT_PORT.println("CAN mappings cleared");
+      return Ok;
+    }
+    else if (rxframe.data[0] == SDO_ABORT) {
+      DBG_OUTPUT_PORT.println("Clear CAN mappings aborted");
+      return UnknownIndex;
+    }
+  }
+
   DBG_OUTPUT_PORT.println("Comm Error");
   return CommError;
 }
