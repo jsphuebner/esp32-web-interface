@@ -78,6 +78,8 @@ static char jsonFileName[20];
 static char hiddenJsonFileName[22];
 static twai_message_t tx_frame;
 static File updateFile;
+static File jsonDownloadFile;
+static bool jsonDownloadToggleBit = false;
 static int currentPage = 0;
 static const size_t PAGE_SIZE_BYTES = 1024;
 static int retries = 0;
@@ -139,10 +141,15 @@ static void requestNextSegment(bool toggleBit) {
   twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
 }
 
-static void handleSdoResponse(twai_message_t *rxframe) {
-  static bool toggleBit = false;
-  static File file;
+static void startJsonDownload(const char* filename, uint8_t stringIndex) {
+  DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", filename);
+  jsonDownloadFile = SPIFFS.open(filename, "w+");
+  jsonDownloadToggleBit = false;
+  state = OBTAIN_JSON;
+  requestSdoElement(SDO_INDEX_STRINGS, stringIndex);
+}
 
+static void handleSdoResponse(twai_message_t *rxframe) {
   if (rxframe->data[0] == SDO_ABORT) { //SDO abort
     state = ERROR;
     DBG_OUTPUT_PORT.println("Error obtaining serial number, try restarting");
@@ -167,10 +174,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
             DBG_OUTPUT_PORT.println("json file already downloaded");
           }
           else {
-            state = OBTAIN_JSON;
-            DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
-            file = SPIFFS.open(jsonFileName, "w+");
-            requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
+            startJsonDownload(jsonFileName, 0);
           }
         }
       }
@@ -179,20 +183,20 @@ static void handleSdoResponse(twai_message_t *rxframe) {
       //Receiving last segment
       if ((rxframe->data[0] & SDO_SIZE_SPECIFIED) && (rxframe->data[0] & SDO_READ) == 0) {
         int size = 7 - ((rxframe->data[0] >> 1) & 0x7);
-        file.write(&rxframe->data[1], size);
-        file.close();
+        jsonDownloadFile.write(&rxframe->data[1], size);
+        jsonDownloadFile.close();
         DBG_OUTPUT_PORT.println("Download complete");
         state = IDLE;
       }
       //Receiving a segment
-      else if (rxframe->data[0] == (toggleBit << 4) && (rxframe->data[0] & SDO_READ) == 0) {
-        file.write(&rxframe->data[1], 7);
-        toggleBit = !toggleBit;
-        requestNextSegment(toggleBit);
+      else if (rxframe->data[0] == (jsonDownloadToggleBit << 4) && (rxframe->data[0] & SDO_READ) == 0) {
+        jsonDownloadFile.write(&rxframe->data[1], 7);
+        jsonDownloadToggleBit = !jsonDownloadToggleBit;
+        requestNextSegment(jsonDownloadToggleBit);
       }
       //Request first segment
       else if ((rxframe->data[0] & SDO_READ) == SDO_READ) {
-        requestNextSegment(toggleBit);
+        requestNextSegment(jsonDownloadToggleBit);
       }
 
       break;
@@ -347,67 +351,17 @@ int GetCurrentUpdatePage() {
   return currentPage;
 }
 
-/** @brief Downloads a JSON parameter list from the inverter via segmented SDO upload.
- *  stringIndex 0 = normal (non-hidden) parameters, 1 = all parameters including hidden.
- *  The result is stored in the given filename on SPIFFS.
- *  Returns true on success. */
-static bool downloadJsonFromDevice(uint8_t stringIndex, const char* filename) {
-  twai_message_t rxframe;
-  bool toggleBit = false;
-
-  File file = SPIFFS.open(filename, "w+");
-  if (!file) return false;
-
-  requestSdoElement(SDO_INDEX_STRINGS, stringIndex);
-
-  while (true) {
-    if (twai_receive(&rxframe, pdMS_TO_TICKS(200)) != ESP_OK) {
-      DBG_OUTPUT_PORT.println("Timeout downloading JSON");
-      file.close();
-      SPIFFS.remove(filename);
-      return false;
-    }
-
-    if (rxframe.data[0] == SDO_ABORT) {
-      DBG_OUTPUT_PORT.println("SDO abort while downloading JSON");
-      file.close();
-      SPIFFS.remove(filename);
-      return false;
-    }
-
-    // Initial upload response – request first data segment
-    if ((rxframe.data[0] & SDO_READ) == SDO_READ) {
-      requestNextSegment(toggleBit);
-      continue;
-    }
-
-    // Last segment: bit 0 (SDO_SIZE_SPECIFIED) set, top bit 6 clear
-    if ((rxframe.data[0] & SDO_SIZE_SPECIFIED) && (rxframe.data[0] & SDO_READ) == 0) {
-      int size = 7 - ((rxframe.data[0] >> 1) & 0x7);
-      file.write(&rxframe.data[1], size);
-      file.close();
-      DBG_OUTPUT_PORT.printf("JSON download complete (%s)\r\n", filename);
-      return true;
-    }
-
-    // Regular segment
-    file.write(&rxframe.data[1], 7);
-    toggleBit = !toggleBit;
-    requestNextSegment(toggleBit);
-  }
-}
-
 bool SendJson(WiFiClient client, bool includeHidden) {
   if (state != IDLE) return false;
 
   const char* fname = includeHidden ? hiddenJsonFileName : jsonFileName;
 
-  // Download hidden JSON on demand if not yet cached
+  // Download hidden JSON on demand if not yet cached, reusing the existing state machine
   if (includeHidden && !SPIFFS.exists(hiddenJsonFileName)) {
-    DBG_OUTPUT_PORT.println("Downloading hidden JSON");
-    if (!downloadJsonFromDevice(1, hiddenJsonFileName)) {
-      return false;
-    }
+    startJsonDownload(hiddenJsonFileName, 1);
+    while (state == OBTAIN_JSON)
+      Loop();
+    if (state != IDLE) return false;
   }
 
   JsonDocument doc;
