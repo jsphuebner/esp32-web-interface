@@ -33,6 +33,7 @@ state of the inverter. These are useful for monitoring and debugging.
 |`load`|load parameters from nonvolatile memory|
 |`fastuart`|increases the baud rate to 921600Response must begin "OK" in success case|
 |`set [parameter] [value]`|set the decimal value of a named parameter|
+|`flag [parameter] [flag]`|set or clear a flag on a parameter. Currently supported flag: `hidden`. Prefix flag with `!`, `~` or `/` to clear it (e.g. `flag <parameter> !hidden`)|
 |`can [direction] [name] [canid] [offset] [length] [gain]`|map values to CAN messages|
 |`can clear`|clear all can mappings|
 |`start [opmode]`|start the inverter in a specified modemode 2 is manual run|

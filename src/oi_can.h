@@ -27,12 +27,13 @@ enum BaudRate { Baud125k, Baud250k, Baud500k };
 
 void Init(uint8_t nodeId, BaudRate baud, int txPin, int rxPin);
 void Loop();
-bool SendJson(WiFiClient c);
+bool SendJson(WiFiClient c, bool includeHidden = false);
 void SendCanMapping(WiFiClient c);
 SetResult AddCanMapping(String json);
 SetResult ClearCanMapping();
 SetResult RemoveCanMapping(String json);
 SetResult SetValue(String name, double value);
+SetResult SetFlag(String name, bool clearFlag);
 double GetValue(String name);
 bool StartStop(int opmode);
 bool SaveToFlash();
