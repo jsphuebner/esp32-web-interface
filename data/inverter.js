@@ -134,7 +134,33 @@ var inverter = {
 
     xmlhttp.onload = function()
     {
+      if (xmlhttp.status != 200) {
+        var messageBox = document.getElementById("message");
+        if (messageBox) {
+          messageBox.innerHTML = this.responseText;
+        }
+        return;
+      }
+
       if (replyFunc) replyFunc(JSON.parse(this.responseText));
+    }
+
+    xmlhttp.onreadystatechange = function() {
+      if (xmlhttp.readyState === XMLHttpRequest.DONE) {
+        console.log(req + ": " + xmlhttp.status);
+        if (xmlhttp.status != 200) {
+          paramsCache.failedFetchCount += 1;
+          if ( paramsCache.failedFetchCount >= 2 && typeof ui !== 'undefined'){
+            ui.showCommunicationErrorBar();
+          }
+        }
+        else {
+          paramsCache.failedFetchCount = 0;
+        }
+        if ( paramsCache.failedFetchCount < 2 && typeof ui !== 'undefined') {
+          ui.hideCommunicationErrorBar();
+        }
+      }
     }
 
     xmlhttp.open("GET", req, true);
@@ -150,6 +176,11 @@ var inverter = {
    */
   canDelete: function(replyFunc, index, subindex) {
     inverter.canMapping(replyFunc, "?remove={\"index\":" + index + ",\"subindex\":" + subindex + "}");
+  },
+
+  /** @brief Clear all CAN mappings */
+  clearCanMapping: function(replyFunc) {
+    inverter.canMapping(replyFunc, "?clear=1");
   },
 
   /** @brief Add a CAN mapping

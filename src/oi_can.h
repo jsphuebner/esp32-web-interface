@@ -30,6 +30,7 @@ void Loop();
 bool SendJson(WiFiClient c);
 void SendCanMapping(WiFiClient c);
 SetResult AddCanMapping(String json);
+SetResult ClearCanMapping();
 SetResult RemoveCanMapping(String json);
 SetResult SetValue(String name, double value);
 double GetValue(String name);
