@@ -575,8 +575,10 @@ static void handleCanMap() {
       res = OICan::AddCanMapping(server.arg("edit"));
   }
 
-  if (res == OICan::Ok)
-    OICan::SendCanMapping(server.client());
+  if (res == OICan::Ok) {
+    if (!OICan::SendCanMapping(server.client()))
+      server.send(500, "text/plain", "CAN communication error");
+  }
   else if (res == OICan::CommError)
     server.send(500, "text/plain", "CAN communication error");
   else if (res == OICan::UnknownIndex)

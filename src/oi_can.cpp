@@ -164,6 +164,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
           }
           else {
             state = OBTAIN_JSON;
+            toggleBit = false;
             DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
             file = SPIFFS.open(jsonFileName, "w+");
             requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
@@ -355,6 +356,7 @@ bool SendJson(WiFiClient client) {
 
   if (result != DeserializationError::Ok) {
     SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
+    state = OBTAINSERIAL;
     updstate = REQUEST_JSON;
     retries = 50;
     DBG_OUTPUT_PORT.println("JSON file invalid, re-downloading");
@@ -384,7 +386,12 @@ bool SendJson(WiFiClient client) {
   return failed < 5;
 }
 
-void SendCanMapping(WiFiClient client) {
+bool SendCanMapping(WiFiClient client) {
+  if (state != IDLE || updstate != UPD_IDLE) {
+    DBG_OUTPUT_PORT.printf("SendCanMapping rejected: CAN state=%d update state=%d\r\n", state, updstate);
+    return false;
+  }
+
   enum ReqMapStt { START, COBID, DATAPOSLEN, GAINOFS, DONE };
 
   twai_message_t rxframe;
@@ -489,6 +496,7 @@ void SendCanMapping(WiFiClient client) {
 
   WriteBufferingStream bufferedWifiClient{client, 1000};
   serializeJson(doc, bufferedWifiClient);
+  return true;
 }
 
 SetResult AddCanMapping(String json) {
@@ -874,9 +882,9 @@ void Loop() {
 
     retries--;
 
-    if (recvdResponse || retries < 0)
+    if (state == IDLE || state == OBTAIN_JSON || retries < 0)
       updstate = UPD_IDLE; //if request was successful
-    else
+    else if (!recvdResponse)
       requestSdoElement(SDO_INDEX_SERIAL, 0);
 
      delay(100);

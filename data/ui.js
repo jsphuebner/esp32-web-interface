@@ -29,8 +29,10 @@ var ui = {
 	// temp variable to store updates from Parameter Database
 	paramUpdates: "",
 
-	// Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
+  // Status of visibility of parameter categories. E.g. Motor, Inverter. true = visible, false = not visible.
 	categoryVisible: {},
+
+	canMappingLoaded: false,
 
 	navbarIsBig: true,
 
@@ -152,7 +154,6 @@ var ui = {
 		ui.updateTables();
 		plot.generateChart();
 		ui.parameterDatabaseCheckForUpdates();
-		inverter.canMapping(ui.populateExistingCanMappingTable);
 		wifi.populateWiFiTab();
 		settings.populateSettingsTab();
 		ui.populateFileList();
@@ -345,6 +346,10 @@ var ui = {
 			}
       ui.populateVersion();
       ui.populateSpotValueDropDown();
+      if (!ui.canMappingLoaded && Object.keys(values).length > 0) {
+        ui.canMappingLoaded = true;
+        inverter.canMapping(ui.populateExistingCanMappingTable);
+      }
 
 			document.getElementById("paramDownload").href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(params, null, 2));
 			document.getElementById("spinner-div").style.visibility = "hidden";
