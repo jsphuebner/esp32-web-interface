@@ -45,6 +45,7 @@
 
 #define SDO_INDEX_PARAMS      0x2000
 #define SDO_INDEX_PARAM_UID   0x2100
+#define SDO_INDEX_PARAM_FLAGS 0x2200
 #define SDO_INDEX_MAP_TX      0x3000
 #define SDO_INDEX_MAP_RX      0x3001
 #define SDO_INDEX_MAP_RD      0x3100
@@ -60,6 +61,7 @@
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
 #define SDO_CMD_CLEAR_CAN     6
+#define PARAM_FLAG_HIDDEN     1
 #define MAX_ERROR_LOG_ENTRIES 100
 
 namespace OICan {
@@ -73,8 +75,11 @@ static State state;
 static UpdState updstate;
 static uint32_t serial[4]; //contains id sum as well
 static char jsonFileName[20];
+static char hiddenJsonFileName[22];
 static twai_message_t tx_frame;
 static File updateFile;
+static File jsonDownloadFile;
+static bool jsonDownloadToggleBit = false;
 static int currentPage = 0;
 static const size_t PAGE_SIZE_BYTES = 1024;
 static int retries = 0;
@@ -136,10 +141,15 @@ static void requestNextSegment(bool toggleBit) {
   twai_transmit(&tx_frame, pdMS_TO_TICKS(10));
 }
 
-static void handleSdoResponse(twai_message_t *rxframe) {
-  static bool toggleBit = false;
-  static File file;
+static void startJsonDownload(const char* filename, uint8_t stringIndex) {
+  DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", filename);
+  jsonDownloadFile = SPIFFS.open(filename, "w+");
+  jsonDownloadToggleBit = false;
+  state = OBTAIN_JSON;
+  requestSdoElement(SDO_INDEX_STRINGS, stringIndex);
+}
 
+static void handleSdoResponse(twai_message_t *rxframe) {
   if (rxframe->data[0] == SDO_ABORT) { //SDO abort
     state = ERROR;
     DBG_OUTPUT_PORT.println("Error obtaining serial number, try restarting");
@@ -156,6 +166,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
         }
         else {
           sprintf(jsonFileName, "/%" PRIx32 ".json", serial[3]);
+          sprintf(hiddenJsonFileName, "/%" PRIx32 "_h.json", serial[3]);
           DBG_OUTPUT_PORT.printf("Got Serial Number %" PRIX32 ":%" PRIX32 ":%" PRIX32 ":%" PRIX32 "\r\n", serial[0], serial[1], serial[2], serial[3]);
 
           if (SPIFFS.exists(jsonFileName)) {
@@ -163,11 +174,7 @@ static void handleSdoResponse(twai_message_t *rxframe) {
             DBG_OUTPUT_PORT.println("json file already downloaded");
           }
           else {
-            state = OBTAIN_JSON;
-            toggleBit = false;
-            DBG_OUTPUT_PORT.printf("Downloading json to %s\r\n", jsonFileName);
-            file = SPIFFS.open(jsonFileName, "w+");
-            requestSdoElement(SDO_INDEX_STRINGS, 0); //Initiates JSON upload
+            startJsonDownload(jsonFileName, 0);
           }
         }
       }
@@ -176,20 +183,20 @@ static void handleSdoResponse(twai_message_t *rxframe) {
       //Receiving last segment
       if ((rxframe->data[0] & SDO_SIZE_SPECIFIED) && (rxframe->data[0] & SDO_READ) == 0) {
         int size = 7 - ((rxframe->data[0] >> 1) & 0x7);
-        file.write(&rxframe->data[1], size);
-        file.close();
+        jsonDownloadFile.write(&rxframe->data[1], size);
+        jsonDownloadFile.close();
         DBG_OUTPUT_PORT.println("Download complete");
         state = IDLE;
       }
       //Receiving a segment
-      else if (rxframe->data[0] == (toggleBit << 4) && (rxframe->data[0] & SDO_READ) == 0) {
-        file.write(&rxframe->data[1], 7);
-        toggleBit = !toggleBit;
-        requestNextSegment(toggleBit);
+      else if (rxframe->data[0] == (jsonDownloadToggleBit << 4) && (rxframe->data[0] & SDO_READ) == 0) {
+        jsonDownloadFile.write(&rxframe->data[1], 7);
+        jsonDownloadToggleBit = !jsonDownloadToggleBit;
+        requestNextSegment(jsonDownloadToggleBit);
       }
       //Request first segment
       else if ((rxframe->data[0] & SDO_READ) == SDO_READ) {
-        requestNextSegment(toggleBit);
+        requestNextSegment(jsonDownloadToggleBit);
       }
 
       break;
@@ -344,21 +351,32 @@ int GetCurrentUpdatePage() {
   return currentPage;
 }
 
-bool SendJson(WiFiClient client) {
+bool SendJson(WiFiClient client, bool includeHidden) {
   if (state != IDLE) return false;
+
+  const char* fname = includeHidden ? hiddenJsonFileName : jsonFileName;
+
+  // Download hidden JSON on demand if not yet cached, reusing the existing state machine
+  if (includeHidden && !SPIFFS.exists(hiddenJsonFileName)) {
+    startJsonDownload(hiddenJsonFileName, 1);
+    while (state == OBTAIN_JSON)
+      Loop();
+    if (state != IDLE) return false;
+  }
 
   JsonDocument doc;
   twai_message_t rxframe;
 
-  File file = SPIFFS.open(jsonFileName, "r");
+  File file = SPIFFS.open(fname, "r");
   auto result = deserializeJson(doc, file);
   file.close();
 
   if (result != DeserializationError::Ok) {
-    SPIFFS.remove(jsonFileName); //if json file is invalid, remove it and trigger re-download
-    state = OBTAINSERIAL;
-    updstate = REQUEST_JSON;
-    retries = 50;
+    SPIFFS.remove(fname);
+    if (!includeHidden) {
+      updstate = REQUEST_JSON;
+      retries = 50;
+    }
     DBG_OUTPUT_PORT.println("JSON file invalid, re-downloading");
     return false;
   }
@@ -792,6 +810,28 @@ String GetErrors() {
   }
 
   return result;
+}
+
+SetResult SetFlag(String name, bool clearFlag) {
+  if (state != IDLE) return CommError;
+
+  twai_message_t rxframe;
+  int id = getId(name);
+
+  if (id <= 0) return UnknownIndex;
+
+  uint32_t flagValue = clearFlag ? 0 : PARAM_FLAG_HIDDEN;
+  setValueSdo(SDO_INDEX_PARAM_FLAGS | (id >> 8), id & 0xFF, flagValue);
+
+  if (twai_receive(&rxframe, pdMS_TO_TICKS(10)) == ESP_OK) {
+    if (rxframe.data[0] == SDO_RESPONSE_DOWNLOAD)
+      return Ok;
+    else if (rxframe.data[0] == SDO_ABORT)
+      return UnknownIndex;
+    else
+      return CommError;
+  }
+  return CommError;
 }
 
 int GetNodeId() {
