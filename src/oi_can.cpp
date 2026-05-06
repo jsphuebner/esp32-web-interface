@@ -60,6 +60,7 @@
 #define SDO_CMD_CLEAR_CAN     4
 #define SDO_CMD_START         4
 #define SDO_CMD_STOP          5
+#define SDO_CMD_CLEAR_CAN     6
 #define MAX_ERROR_LOG_ENTRIES 100
 
 namespace OICan {
