@@ -67,10 +67,10 @@
 #include "src/oi_can.h"
 #include "src/config.h"
 
-#define DBG_OUTPUT_PORT Serial
-#define INVERTER_PORT UART_NUM_2
-#define INVERTER_RX 16
-#define INVERTER_TX 17
+#define DBG_OUTPUT_PORT Serial2
+#define INVERTER_PORT UART_NUM_0
+#define INVERTER_RX 3
+#define INVERTER_TX 1
 #define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
 #define UART_MESSBUF_SIZE 100
 #ifndef LED_BUILTIN
@@ -125,9 +125,9 @@ bool createNextSDFile()
   do
   {
     if(haveRTC)
-      snprintf(filename, 50, "/%d-%02d-%02d-%02d-%02d-%02d_%" PRIu32 ".bin", int_rtc.getYear(), int_rtc.getMonth(), int_rtc.getDay(), int_rtc.getHour(), int_rtc.getMinute(), int_rtc.getSecond(), nextFileIndex++);
+      snprintf(filename, 50, "/%d-%02d-%02d-%02d-%02d-%02d_%" PRIu32 ".txt", int_rtc.getYear(), int_rtc.getMonth(), int_rtc.getDay(), int_rtc.getHour(), int_rtc.getMinute(), int_rtc.getSecond(), nextFileIndex++);
     else
-      snprintf(filename, 50, "/%010" PRIu32 ".bin", nextFileIndex++);
+      snprintf(filename, 50, "/%010" PRIu32 ".txt", nextFileIndex++);
   }
   while(SD_MMC.exists(filename));
 
@@ -476,8 +476,9 @@ static void handleCommand() {
 
   digitalWrite(LED_BUILTIN, HIGH);
 
-  if (cmd == "json") {
-    if (!OICan::SendJson(server.client()))
+  if (cmd == "json" || cmd == "json hidden") {
+    bool includeHidden = cmd == "json hidden";
+    if (!OICan::SendJson(server.client(), includeHidden))
       server.send(500, "text/plain", "CAN communication error");
   }
   else if (cmd.startsWith("set")) {
@@ -501,6 +502,41 @@ static void handleCommand() {
       case OICan::CommError:
         server.send(200, "text/plain", "CAN communication error");
         break;
+    }
+  }
+  else if (cmd.startsWith("flag")) {
+    String str(cmd);
+    int nameStart = str.indexOf(' ');
+    int flagStart = str.indexOf(' ', nameStart + 1);
+
+    if (nameStart < 0 || flagStart < 0) {
+      server.send(200, "text/plain", "Usage: flag <parameter> [!]hidden");
+    }
+    else {
+      String name = str.substring(nameStart + 1, flagStart);
+      String flagName = str.substring(flagStart + 1);
+      flagName.trim();
+
+      // Prefixes '!', '~', '/' all mean "clear flag" (matches libopeninv terminal syntax)
+      bool clearFlag = flagName.startsWith("!") || flagName.startsWith("~") || flagName.startsWith("/");
+      if (clearFlag) flagName = flagName.substring(1);
+
+      if (flagName == "hidden") {
+        switch (OICan::SetFlag(name, clearFlag)) {
+          case OICan::Ok:
+            server.send(200, "text/plain", "Flag change OK");
+            break;
+          case OICan::UnknownIndex:
+            server.send(200, "text/plain", "Unknown parameter");
+            break;
+          default:
+            server.send(200, "text/plain", "CAN communication error");
+            break;
+        }
+      }
+      else {
+        server.send(200, "text/plain", "Unknown flag");
+      }
     }
   }
   else if (cmd.startsWith("stream")) {
@@ -711,12 +747,12 @@ void staCheck(){
 }
 
 void setup(void){
-  DBG_OUTPUT_PORT.begin(115200);
+  DBG_OUTPUT_PORT.begin(921600);
   //Inverter.setRxBufferSize(50000);
   //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
   //Need to use low level Espressif IDF API instead of Serial to get high enough data rates
   uart_config_t uart_config = {
-        .baud_rate = 115200,
+        .baud_rate = 921600,
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -848,6 +884,8 @@ void binaryLoggingStart()
 {
   if(createNextSDFile())
   {
+    fastLoggingActive = true;
+    return;
     sendCommand(""); //flush out buffer in case just had power up
     delay(10);
     sendCommand("binarylogging 1"); //send start logging command to inverter
@@ -876,6 +914,10 @@ void binaryLoggingStart()
 
 void binaryLoggingStop()
 {
+  dataFile.flush(); //make sure up to date
+  dataFile.close();
+  fastLoggingActive = false;
+  return;
   uart_write_bytes(INVERTER_PORT, "\n", 1);
   delay(1);
   uart_write_bytes(INVERTER_PORT, "binarylogging 0", strlen("binarylogging 0"));
