@@ -67,10 +67,21 @@
 #include "src/oi_can.h"
 #include "src/config.h"
 
+#ifdef FOCCCI_LOGGING
 #define DBG_OUTPUT_PORT Serial2
 #define INVERTER_PORT UART_NUM_0
 #define INVERTER_RX 3
 #define INVERTER_TX 1
+#define DBG_BAUD 921600
+#define INVERTER_BAUD 921600
+#else
+#define DBG_OUTPUT_PORT Serial
+#define INVERTER_PORT UART_NUM_2
+#define INVERTER_RX 16
+#define INVERTER_TX 17
+#define DBG_BAUD 115200
+#define INVERTER_BAUD 115200
+#endif
 #define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
 #define UART_MESSBUF_SIZE 100
 #ifndef LED_BUILTIN
@@ -747,12 +758,12 @@ void staCheck(){
 }
 
 void setup(void){
-  DBG_OUTPUT_PORT.begin(921600);
+  DBG_OUTPUT_PORT.begin(DBG_BAUD);
   //Inverter.setRxBufferSize(50000);
   //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
   //Need to use low level Espressif IDF API instead of Serial to get high enough data rates
   uart_config_t uart_config = {
-        .baud_rate = 921600,
+        .baud_rate = INVERTER_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -884,8 +895,11 @@ void binaryLoggingStart()
 {
   if(createNextSDFile())
   {
+#ifdef FOCCCI_LOGGING
+    //In FOCCCI mode data is received directly on INVERTER_PORT; no inverter commands needed
     fastLoggingActive = true;
     return;
+#endif
     sendCommand(""); //flush out buffer in case just had power up
     delay(10);
     sendCommand("binarylogging 1"); //send start logging command to inverter
@@ -914,10 +928,11 @@ void binaryLoggingStart()
 
 void binaryLoggingStop()
 {
+#ifdef FOCCCI_LOGGING
   dataFile.flush(); //make sure up to date
   dataFile.close();
   fastLoggingActive = false;
-  return;
+#else
   uart_write_bytes(INVERTER_PORT, "\n", 1);
   delay(1);
   uart_write_bytes(INVERTER_PORT, "binarylogging 0", strlen("binarylogging 0"));
@@ -943,6 +958,7 @@ void binaryLoggingStop()
   }
   delay(10);
   uart_flush(INVERTER_PORT);
+#endif
 }
 
 void loop(void){
