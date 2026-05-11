@@ -116,6 +116,39 @@ var ui = {
 		}
 	},
 
+	bindInverterUiHooks: function()
+	{
+		inverter.setUiHooks({
+			onCommunicationError: function(show) {
+				if (show) {
+					ui.showCommunicationErrorBar();
+				}
+				else {
+					ui.hideCommunicationErrorBar();
+				}
+			},
+			onCanMappingError: function(message, _status) {
+				var messageBox = document.getElementById("message");
+				if (messageBox) {
+					messageBox.innerHTML = message;
+				}
+			},
+			onSetParamProgress: function(key, value) {
+				modal.appendToModal('large', "Setting " + key + " to " + value + "<br>");
+			},
+			onSetParamReply: function(reply, _key, _value) {
+				modal.appendToModal('large', reply + "<br>");
+			},
+			onSetParamScroll: function() {
+				// auto-scroll text in modal as it is added
+				modal.largeModalScrollToBottom();
+			},
+			onRequestError: function(_requestName) {
+				alert("error");
+			}
+		});
+	},
+
 	/** @brief switch to a different page tab */
 	openPage: function(pageName, elmnt, color)
 	{
@@ -157,6 +190,8 @@ var ui = {
 	/** @brief excutes when page finished loading. Creates tables and chart */
 	onLoad: function()
 	{
+		ui.bindInverterUiHooks();
+
 		// Set up listener to execute commands when enter is pressed (dashboard, command box)
 		var commandinput = document.getElementById('commandinput');
 		commandinput.addEventListener("keyup", function(event)

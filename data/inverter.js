@@ -67,6 +67,31 @@ var paramsCache = {
 var inverter = {
 
   firmwareVersion: 0,
+  uiHooks: {
+    onCommunicationError: function(_show) {},
+    onCanMappingError: function(_message, _status) {},
+    onSetParamProgress: function(_key, _value) {},
+    onSetParamReply: function(_reply, _key, _value) {},
+    onSetParamScroll: function() {},
+    onRequestError: function(_requestName) {}
+  },
+
+  setUiHooks: function(hooks)
+  {
+    inverter.uiHooks = Object.assign(inverter.uiHooks, hooks || {});
+  },
+
+  updateCommunicationState: function(status)
+  {
+    if (status != 200) {
+      paramsCache.failedFetchCount += 1;
+    }
+    else {
+      paramsCache.failedFetchCount = 0;
+    }
+
+    inverter.uiHooks.onCommunicationError(paramsCache.failedFetchCount >= 2);
+  },
 
   /** @brief send a command to the inverter */
   sendCmd: function(cmd, replyFunc, repeat)
@@ -80,18 +105,7 @@ var inverter = {
     xmlhttp.onreadystatechange = function() {
       if (xmlhttp.readyState === XMLHttpRequest.DONE) {
         console.log(req + ": " + xmlhttp.status);
-        if (xmlhttp.status != 200) {
-          paramsCache.failedFetchCount += 1;
-          if ( paramsCache.failedFetchCount >= 2 && typeof ui !== 'undefined'){
-            ui.showCommunicationErrorBar();
-          }
-        }
-        else {
-          paramsCache.failedFetchCount = 0;
-        }
-        if ( paramsCache.failedFetchCount < 2 && typeof ui !== 'undefined') {
-          ui.hideCommunicationErrorBar();
-        }
+        inverter.updateCommunicationState(xmlhttp.status);
       }
     }
 
@@ -135,10 +149,7 @@ var inverter = {
     xmlhttp.onload = function()
     {
       if (xmlhttp.status != 200) {
-        var messageBox = document.getElementById("message");
-        if (messageBox) {
-          messageBox.innerHTML = this.responseText;
-        }
+        inverter.uiHooks.onCanMappingError(this.responseText, xmlhttp.status);
         return;
       }
 
@@ -148,18 +159,7 @@ var inverter = {
     xmlhttp.onreadystatechange = function() {
       if (xmlhttp.readyState === XMLHttpRequest.DONE) {
         console.log(req + ": " + xmlhttp.status);
-        if (xmlhttp.status != 200) {
-          paramsCache.failedFetchCount += 1;
-          if ( paramsCache.failedFetchCount >= 2 && typeof ui !== 'undefined'){
-            ui.showCommunicationErrorBar();
-          }
-        }
-        else {
-          paramsCache.failedFetchCount = 0;
-        }
-        if ( paramsCache.failedFetchCount < 2 && typeof ui !== 'undefined') {
-          ui.hideCommunicationErrorBar();
-        }
+        inverter.updateCommunicationState(xmlhttp.status);
       }
     }
 
@@ -252,11 +252,10 @@ var inverter = {
     if (index < keys.length)
     {
       var key = keys[index];
-      modal.appendToModal('large', "Setting " + key + " to " + params[key] + "<br>");
+      inverter.uiHooks.onSetParamProgress(key, params[key]);
       inverter.sendCmd("set " + key + " " + params[key], function(reply) {
-        modal.appendToModal('large', reply + "<br>");
-        // auto-scroll text in modal as it is added
-        modal.largeModalScrollToBottom();
+        inverter.uiHooks.onSetParamReply(reply, key, params[key]);
+        inverter.uiHooks.onSetParamScroll();
         inverter.setParam(params, index + 1);
       });
     }
@@ -275,7 +274,7 @@ var inverter = {
     }
     filesRequest.onerror = function()
     {
-      alert("error");
+      inverter.uiHooks.onRequestError("getFiles");
     }
     filesRequest.open("GET", "/list", true);
     filesRequest.send();
@@ -292,7 +291,7 @@ var inverter = {
     }
     deleteFileRequest.onerror = function()
     {
-      alert("error");
+      inverter.uiHooks.onRequestError("deleteFile");
     }
     deleteFileRequest.open("DELETE", "/edit?f=" + filename, true);
     deleteFileRequest.send();
