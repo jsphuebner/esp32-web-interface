@@ -33,9 +33,14 @@
     <form id="wifiClientForm" enctype="multipart/form-data" action="wifi" method="POST">
         <p><label for="staSSID">Network SSID: </label><input id="staSSID" name="staSSID" type="text" value="%staSSID%"/></p>
         <p><label for="staPW">WPA2 Password: </label><input id="staPW" name="staPW" type="text" /></p>
-        Current IP Address: %staIP%
+        Current IP Address: %staIP%<br>
+        Signal Strength: %staRSSI%
         <!-- <input type="submit" value="Modify" /> -->
         <a href="#" onclick="wifi.wifiStationForm('wifiClientForm');"><button>
             <img class="buttonimg" src="/icon-check-circle.png">Modify</button></a>
+    </form>
+    <form id="wifiForgetForm" action="wifi" method="POST">
+        <input type="hidden" name="forget" value="1"/>
+        <button type="submit"><img class="buttonimg" src="/icon-trash.png">Stop Connecting / Forget Network</button>
     </form>
 </div>
