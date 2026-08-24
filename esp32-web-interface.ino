@@ -55,11 +55,18 @@
 #include <ESP32Time.h>
 #include <time.h>
 #include "driver/uart.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+// #define WIFI_BENCH_DEBUG //TEMP: no inverter attached, borrow UART0/COM13 for debug prints instead of Serial2. Remove when reconnecting the inverter.
+#ifdef WIFI_BENCH_DEBUG
+#define DBG_OUTPUT_PORT Serial
+#else
 #define DBG_OUTPUT_PORT Serial2
+#endif
 #define INVERTER_PORT UART_NUM_0
-#define INVERTER_RX 3
-#define INVERTER_TX 1
+#define INVERTER_RX 1
+#define INVERTER_TX 3
 #define UART_TIMEOUT (100 / portTICK_PERIOD_MS)
 #define UART_MESSBUF_SIZE 100
 #define LED_BUILTIN 13 //clashes with SDIO, need to change to suit hardware and uncomment lines
@@ -649,14 +656,18 @@ static void handleUpdate()
 static void handleWifi()
 {
   bool updated = true;
-  if(server.hasArg("apSSID") && server.hasArg("apPW")) 
+  if(server.hasArg("apSSID") && server.hasArg("apPW"))
   {
     WiFi.softAP(server.arg("apSSID").c_str(), server.arg("apPW").c_str());
   }
-  else if(server.hasArg("staSSID") && server.hasArg("staPW")) 
+  else if(server.hasArg("staSSID") && server.hasArg("staPW"))
   {
     WiFi.mode(WIFI_AP_STA);
     WiFi.begin(server.arg("staSSID").c_str(), server.arg("staPW").c_str());
+  }
+  else if(server.hasArg("forget"))
+  {
+    WiFi.disconnect(true, true); //drop the connection and erase the stored station credentials so it stops trying to rejoin
   }
   else
   {
@@ -666,6 +677,7 @@ static void handleWifi()
     html.replace("%staSSID%", WiFi.SSID());
     html.replace("%apSSID%", WiFi.softAPSSID());
     html.replace("%staIP%", WiFi.localIP().toString());
+    html.replace("%staRSSI%", WiFi.isConnected() ? (String(WiFi.RSSI()) + " dBm") : "not connected");
     server.send(200, "text/html", html);
     updated = false;
   }
@@ -693,11 +705,59 @@ void staCheck(){
   }
 }
 
+void sdMmcInitTask(void *param)
+{
+  if (SD_MMC.begin()) {
+    DBG_OUTPUT_PORT.println("Started SD_MMC");
+    haveSDCard = true;
+  }
+  else
+    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");
+  vTaskDelete(NULL);
+}
+
+#ifdef WIFI_BENCH_DEBUG
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+  switch(event)
+  {
+    case ARDUINO_EVENT_WIFI_AP_START:
+      DBG_OUTPUT_PORT.println("[wifi] AP started");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:
+      DBG_OUTPUT_PORT.println("[wifi] station associated to AP");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
+      DBG_OUTPUT_PORT.println("[wifi] station disassociated from AP");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
+      DBG_OUTPUT_PORT.println("[wifi] AP handed out an IP to a station");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_START:
+      DBG_OUTPUT_PORT.println("[wifi] STA start (attempting to join stored network)");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      DBG_OUTPUT_PORT.println("[wifi] STA connected to router");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      DBG_OUTPUT_PORT.println("[wifi] STA disconnected/failed to connect");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      DBG_OUTPUT_PORT.println("[wifi] STA got IP");
+      break;
+    default:
+      break;
+  }
+}
+#endif
+
 void setup(void){
   DBG_OUTPUT_PORT.begin(115200);
+  DBG_OUTPUT_PORT.println("\n\n--- setup start ---");
   //Inverter.setRxBufferSize(50000);
   //Inverter.begin(115200, SERIAL_8N1, INVERTER_RX, INVERTER_TX);
   //Need to use low level Espressif IDF API instead of Serial to get high enough data rates
+#ifndef WIFI_BENCH_DEBUG //INVERTER_PORT is UART0, same pins DBG_OUTPUT_PORT(Serial) is using above while bench debugging
   uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -708,7 +768,8 @@ void setup(void){
   uart_param_config(INVERTER_PORT, &uart_config);
   uart_set_pin(INVERTER_PORT, INVERTER_TX, INVERTER_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
   uart_driver_install(INVERTER_PORT, SDIO_BUFFER_SIZE * 3, 0, 0, NULL, 0); //x3 allows twice card write size to buffer while writes
-  delay(100); 
+#endif
+  delay(100);
   
 
   //check for external RTC and if present use to initialise on-chip RTC
@@ -731,12 +792,9 @@ void setup(void){
 
   //initialise SD card in SDIO mode
   //if (SD_MMC.begin("/sdcard", true, false, 40000, 5U)) {
-  if (SD_MMC.begin()) {
-    DBG_OUTPUT_PORT.println("Started SD_MMC");    
-    haveSDCard = true;    
-  }
-  else
-    DBG_OUTPUT_PORT.println("Couldn't start SD_MMC");  
+  //Run on its own task: SD_MMC.begin() can hang indefinitely with no card/pull-ups present,
+  //and must never be able to block WiFi/the webserver from starting.
+  xTaskCreate(sdMmcInitTask, "sdMmcInit", 4096, NULL, 1, NULL);
 
   //Start SPI Flash file system
   SPIFFS.begin();
@@ -745,13 +803,18 @@ void setup(void){
   #ifdef WIFI_IS_OFF_AT_BOOT
     enableWiFiAtBootTime();
   #endif
+#ifdef WIFI_BENCH_DEBUG
+  WiFi.onEvent(onWiFiEvent);
+#endif
   WiFi.mode(WIFI_AP_STA);
   //WiFi.setPhyMode(WIFI_PHY_MODE_11B);
   WiFi.setSleep(false);
   WiFi.setTxPower(WIFI_POWER_19_5dBm);//25); //dbm
+  DBG_OUTPUT_PORT.print("softAP IP: ");
+  DBG_OUTPUT_PORT.println(WiFi.softAPIP());
   WiFi.begin();
   sta_tick.attach(10, staCheck);
-  
+
   MDNS.begin(host);
 
   updater.setup(&server);
@@ -799,6 +862,7 @@ void setup(void){
   server.client().setNoDelay(1);
 
   MDNS.addService("http", "tcp", 80);
+  DBG_OUTPUT_PORT.println("--- setup complete, server.begin() done ---");
 }
 
 void binaryLoggingStart()
